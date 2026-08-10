@@ -1,0 +1,53 @@
+name: "SIP Doorbell Responder"
+description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
+version: "1.0.0"
+slug: "sip_responder"
+arch:
+  - aarch64
+  - amd64
+  - armhf
+  - armv7
+  - i386
+
+ports:
+  5060/udp: 5060
+  4000/udp: 4000
+  4001/udp: 4001
+
+host_network: false
+
+options:
+  sip_username: "doorbell"
+  sip_password: "change_me"
+  sip_display_name: "Doorbell Responder"
+  sip_domain: "192.168.1.100"
+  sip_port: 5060
+  rtp_port_start: 4000
+  tts_message: "Please use the other bell."
+  tts_wav_path: "/media/tts/doorbell_message.wav"
+  tts_audio_duration: 5
+  ha_url: "http://homeassistant.local:8123"
+  ha_token: ""
+  tts_engine: "tts.piper"
+  mqtt_host: "core-mosquitto"
+  mqtt_port: 1883
+
+schema:
+  sip_username: str
+  sip_password: password
+  sip_display_name: str
+  sip_domain: str
+  sip_port: int
+  rtp_port_start: int
+  tts_message: str
+  tts_wav_path: str
+  tts_audio_duration: int
+  ha_url: str
+  ha_token: str
+  tts_engine: str
+  mqtt_host: str
+  mqtt_port: int
+
+map:
+  - media:rw
+  - tmp:rw
