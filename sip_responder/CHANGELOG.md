@@ -3,7 +3,7 @@
 ## 1.0.41
 
 - Added timestamps to all log output (HH:MM:SS prefix).
-- Added 50ms pre-playback delay for conference port linking.
+- Added 100ms pre-playback delay for reliable conference port linking.
   Fixes cut-off on short messages (<2s).
 - Replaced time.sleep() with libHandleEvents() loop during playback.
 

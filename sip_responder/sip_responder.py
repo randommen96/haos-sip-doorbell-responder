@@ -355,9 +355,10 @@ class DoorbellCall(pj.Call):
         print(f"  File: {file_size} bytes, ~{duration:.1f}s")
 
         # Brief delay for conference ports to link. The doorbell's RTP
-        # stream is already negotiated in the SDP exchange, so 50ms is
-        # enough for PJSIP to connect the player to the call media.
-        deadline = time.time() + 0.05
+        # stream is already negotiated, but conference port linking can
+        # take up to ~30ms. 100ms gives a reliable margin so the first
+        # audio frames aren't lost — prevents "hallo" becoming "allo".
+        deadline = time.time() + 0.1
         while time.time() < deadline:
             if _endpoint:
                 _endpoint.libHandleEvents(10)
