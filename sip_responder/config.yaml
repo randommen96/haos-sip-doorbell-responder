@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.13"
+version: "1.0.14"
 slug: "sip_responder"
 init: false
 homeassistant_api: true
@@ -21,6 +21,7 @@ host_network: false
 options:
   sip_username: "doorbell"
   sip_password: "change_me"
+  sip_extensions: "6001,6002"
   sip_display_name: "Doorbell Responder"
   sip_domain: "192.168.1.100"
   sip_port: 5060
@@ -38,6 +39,7 @@ options:
 schema:
   sip_username: str
   sip_password: password
+  sip_extensions: str
   sip_display_name: str
   sip_domain: str
   sip_port: int
