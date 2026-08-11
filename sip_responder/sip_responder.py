@@ -355,10 +355,10 @@ class DoorbellCall(pj.Call):
         print(f"  File: {file_size} bytes, ~{duration:.1f}s")
 
         # Brief delay for conference ports to link. The doorbell's RTP
-        # stream is already negotiated, but conference port linking can
-        # take up to ~30ms. 100ms gives a reliable margin so the first
-        # audio frames aren't lost — prevents "hallo" becoming "allo".
-        deadline = time.time() + 0.1
+        # stream is already negotiated, but the conference connection
+        # occasionally takes longer on some calls. 200ms ensures the
+        # first audio frames are never lost — even for sub-second messages.
+        deadline = time.time() + 0.2
         while time.time() < deadline:
             if _endpoint:
                 _endpoint.libHandleEvents(10)
