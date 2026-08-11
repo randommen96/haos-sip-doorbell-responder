@@ -126,6 +126,17 @@ HA_API_URL = "http://supervisor/core/api"
 DOORBELL_STATE_TOPIC = "doorbell/state"
 
 mqtt_client = mqtt.Client(client_id="sip_doorbell_responder")
+mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
+
+def _on_mqtt_connect(client, userdata, flags, rc):
+    print(f"MQTT connected (rc={rc})")
+    publish_mqtt_discovery()
+
+def _on_mqtt_disconnect(client, userdata, rc):
+    print(f"MQTT disconnected (rc={rc}), auto-reconnecting...")
+
+mqtt_client.on_connect = _on_mqtt_connect
+mqtt_client.on_disconnect = _on_mqtt_disconnect
 
 
 def publish_mqtt_discovery():
@@ -431,10 +442,10 @@ def main():
     try:
         if mqtt_user:
             mqtt_client.username_pw_set(mqtt_user, mqtt_pass)
-        mqtt_client.connect(mqtt_host, mqtt_port, 60)
+        mqtt_client.connect_async(mqtt_host, mqtt_port, keepalive=30)
         mqtt_client.loop_start()
-        publish_mqtt_discovery()
-        print(f"MQTT connected: {mqtt_host}:{mqtt_port}")
+        # discovery is published in on_connect callback
+        print(f"MQTT connecting: {mqtt_host}:{mqtt_port}")
     except Exception as e:
         print(f"MQTT connection failed: {e}")
         print("Continuing without MQTT — doorbell state will not be published.")
