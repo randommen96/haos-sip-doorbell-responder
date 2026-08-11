@@ -24,7 +24,7 @@ def load_options():
         "mqtt_host": "",
         "mqtt_port": 1883,
         "sensor_name": "Doorbell Pressed",
-        "log_level": 2,
+        "log_level": 1,
         "mqtt_username": "",
         "mqtt_password": "",
     }

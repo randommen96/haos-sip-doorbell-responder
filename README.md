@@ -80,7 +80,7 @@ The doorbell does not need to show "Registered" — it sends an INVITE directly 
 | `tts_message` | What you want the doorbell to say |
 | `tts_voice` | Piper voice (e.g., `en_US-lessac-medium`). Empty = Piper default |
 | `sensor_name` | Name for the MQTT binary sensor entity |
-| `log_level` | PJSIP log level: 0=fatal, 1=error, 2=warning (default), 3=info, 4=debug, 5=trace |
+| `log_level` | PJSIP log level: 0=fatal, 1=error (default), 2=warning, 3=info, 4=debug, 5=trace |
 | `mqtt_username` | MQTT broker username (leave empty for auto-discovery) |
 | `mqtt_password` | MQTT broker password (leave empty for auto-discovery) |
 
@@ -88,7 +88,7 @@ The doorbell does not need to show "Registered" — it sends an INVITE directly 
 
 ### Log Levels
 
-The default `log_level: 2` (WARNING) suppresses most PJSIP noise. Only change if debugging:
+The default `log_level: 1` (ERROR) suppresses all PJSIP noise except actual errors. Only raise for debugging:
 
 | Level | What you see |
 |---|---|

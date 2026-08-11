@@ -23,7 +23,7 @@ def test_defaults():
     assert opts["mqtt_host"] == ""
     assert opts["mqtt_port"] == 1883
     assert opts["sensor_name"] == "Doorbell Pressed"
-    assert opts["log_level"] == 2
+    assert opts["log_level"] == 1
     assert opts["mqtt_username"] == ""
     assert opts["mqtt_password"] == ""
 

@@ -28,7 +28,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `tts_engine` | `tts.piper` | TTS entity to use |
 | `tts_audio_duration` | `5` | Fallback duration if file size can't be read |
 | `sensor_name` | `"Doorbell Pressed"` | Name of the MQTT binary sensor in HA |
-| `log_level` | `2` | PJSIP log level: 0=fatal, 1=error, 2=warning, 3=info, 4=debug, 5=trace |
+| `log_level` | `1` | PJSIP log level: 0=fatal, 1=error (default), 2=warning, 3=info, 4=debug, 5=trace |
 | `mqtt_host` | `""` | MQTT broker host. Leave empty for auto-discovery. |
 | `mqtt_port` | `1883` | MQTT broker port |
 | `mqtt_username` | `""` | MQTT username. Leave empty for auto-discovery. |
@@ -40,7 +40,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 
 ### Log Levels
 
-PJSIP generates ~40 lines of log output per startup at the default level of 2 (WARNING). Lower levels suppress more:
+At the default level of 1 (ERROR), PJSIP startup is nearly silent. Only actual errors appear.
 
 | Level | Shows |
 |---|---|
