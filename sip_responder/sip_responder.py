@@ -327,9 +327,15 @@ class DoorbellCall(pj.Call):
             return
 
         print(f"Playing: {TTS_ULAW_PATH}")
+        # Calculate duration from file: mu-law is 8000 bytes/sec
+        file_size = os.path.getsize(TTS_ULAW_PATH)
+        duration = file_size / 8000
+        print(f"  File: {file_size} bytes, ~{duration:.1f}s")
+
         try:
             player = pj.AudioMediaPlayer()
-            player.createPlayer(TTS_ULAW_PATH)
+            # PJMEDIA_FILE_NO_LOOP = 1 — play once, don't repeat
+            player.createPlayer(TTS_ULAW_PATH, options=1)
             call_media = self.getAudioMedia(-1)
             player.startTransmit(call_media)
         except pj.Error as e:
@@ -339,8 +345,10 @@ class DoorbellCall(pj.Call):
             return
 
         self.audio_played = True
-        time.sleep(TTS_AUDIO_DURATION)
-        self.hangup()
+        time.sleep(duration + 0.5)
+        hangup_prm = pj.CallOpParam()
+        self.hangup(hangup_prm)
+        print("Hung up after playback.")
         print("Hung up after playback.")
 
 
