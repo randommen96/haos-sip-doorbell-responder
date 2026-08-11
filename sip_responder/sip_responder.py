@@ -280,16 +280,15 @@ class DoorbellAccount(pj.Account):
             print(f"SIP registration event: code={prm.code} reason={prm.reason}")
 
     def onIncomingCall(self, prm):
-        """Answer incoming call immediately. The doorbell sends H264
-        video in SDP — we only do audio, so we must answer before PJSIP
-        has a chance to fail the call on video negotiation."""
+        """Answer with 180 Ringing first, then 200 OK later in
+        onCallState. Answering with 200 immediately causes PJSIP
+        to hang up internally before media transport is ready."""
         call = DoorbellCall(self, prm.callId)
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
         call_prm = pj.CallOpParam()
-        call_prm.statusCode = 200
+        call_prm.statusCode = 180  # Ringing
         call.answer(call_prm)
-        print("Call answered (200 OK).")
         return call
 
 
@@ -301,7 +300,14 @@ class DoorbellCall(pj.Call):
     def onCallState(self, prm):
         state = self.info().state
 
-        if state == pj.PJSIP_INV_STATE_CONFIRMED:
+        if state == pj.PJSIP_INV_STATE_INCOMING:
+            print("Incoming call — answering...")
+            call_prm = pj.CallOpParam()
+            call_prm.statusCode = 200
+            self.answer(call_prm)
+            print("Call answered (200 OK).")
+
+        elif state == pj.PJSIP_INV_STATE_CONFIRMED:
             print("Call confirmed. Playing TTS audio...")
             self.play_tts_audio()
 
