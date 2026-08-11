@@ -274,11 +274,15 @@ def generate_tts_audio():
 
 class DoorbellAccount(pj.Account):
     def onRegState(self, prm):
-        # prm.code is SIP status code (200 = OK, 408 = timeout, etc.)
         if prm.code == 200:
             print("SIP registration OK — doorbell can now connect.")
         else:
             print(f"SIP registration event: code={prm.code} reason={prm.reason}")
+
+    def onIncomingCall(self, prm):
+        """Return our custom Call handler. Without this, pjsua2 uses a
+        default handler that auto-rejects with 500."""
+        return DoorbellCall(self, prm.callId)
 
 
 class DoorbellCall(pj.Call):
