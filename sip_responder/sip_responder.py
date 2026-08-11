@@ -4,6 +4,18 @@ SIP Doorbell Responder for Home Assistant OS.
 Answers Hikvision KB8113 doorbell SIP calls and plays a Piper TTS message.
 """
 
+# Unbuffered stdout: Docker pipes are not TTYs, so Python buffers output.
+# Without this, log lines may not appear until process exit.
+import sys as _sys
+_sys.stdout.reconfigure(line_buffering=True)
+
+# Suppress ALSA/PulseAudio/JACK noise before PJSIP initializes PortAudio.
+# The container has no sound hardware -- we use PJSIP's null audio device.
+import os as _os
+_os.environ.setdefault("ALSA_CARD", "0")
+_os.environ.setdefault("PULSE_SERVER", "none")
+_os.environ.setdefault("JACK_NO_START_SERVER", "1")
+
 import pjsua2 as pj
 import paho.mqtt.client as mqtt
 import os
@@ -207,7 +219,11 @@ def generate_tts_audio():
 
 class DoorbellAccount(pj.Account):
     def onRegState(self, prm):
-        print(f"Registration state: {prm.reason}")
+        # prm.code is SIP status code (200 = OK, 408 = timeout, etc.)
+        if prm.code == 200:
+            print("SIP registration OK — doorbell can now connect.")
+        else:
+            print(f"SIP registration event: code={prm.code} reason={prm.reason}")
 
 
 class DoorbellCall(pj.Call):
@@ -297,6 +313,12 @@ def setup_sip_endpoint():
 # ---------------------------------------------------------------------------
 
 def main():
+    print("--- SIP Doorbell Responder ---")
+    print(f"Config loaded from {OPTIONS_PATH}")
+    print(f"  SIP: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
+    print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT}" + (" (auth)" if MQTT_USERNAME else ""))
+    print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if HA_TOKEN else " [static file]"))
+
     # 1. Connect MQTT
     try:
         if MQTT_USERNAME:

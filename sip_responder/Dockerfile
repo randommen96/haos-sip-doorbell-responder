@@ -7,6 +7,14 @@ FROM ghcr.io/home-assistant/homeassistant-base:latest
 RUN echo "/usr/lib/python3.14/site-packages" \
         > /usr/local/lib/python3.14/site-packages/apk-packages.pth
 
+# Suppress ALSA/PulseAudio/JACK device scan noise during PJSIP init.
+# The container has no sound hardware; we use setNullDev() in code.
+# ENV vars alone don't silence ALSA -- need a null asound.conf too.
+RUN echo 'pcm.!default { type null }' > /etc/asound.conf && \
+    echo 'ctl.!default { type null }' >> /etc/asound.conf
+ENV PULSE_SERVER=none
+ENV JACK_NO_START_SERVER=1
+
 RUN apk add --no-cache \
     py3-pjsua \
     ffmpeg \
