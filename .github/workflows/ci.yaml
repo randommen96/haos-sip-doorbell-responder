@@ -23,6 +23,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install dependencies
-        run: pip install pytest
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq ffmpeg
+          pip install pytest
       - name: Run tests
         run: python3 -m pytest tests/ -v

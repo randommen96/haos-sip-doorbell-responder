@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.39
+
+- Added tests: audio transcode, TTS URL parsing, MQTT discovery payload
+  format, audio duration calculation (7 tests total).
+- Added DEVELOPMENT.md with project structure, build/test/release docs.
+- Removed outdated plan.MD (predates current implementation).
+- CI now includes ffmpeg for transcode tests.
+
 ## 1.0.38
 
 - Removed duplicate "Hung up after playback" log line.
