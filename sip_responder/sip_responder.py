@@ -278,6 +278,9 @@ def generate_tts_audio():
 # returns, PJSIP auto-rejects with 603 Decline.
 _active_calls = {}
 
+# Module-level endpoint reference for event processing during playback.
+_endpoint = None
+
 
 class DoorbellAccount(pj.Account):
     def onRegState(self, prm):
@@ -336,7 +339,6 @@ class DoorbellCall(pj.Call):
 
         try:
             player = pj.AudioMediaPlayer()
-            # PJMEDIA_FILE_NO_LOOP = 1 — play once, don't repeat
             player.createPlayer(TTS_ULAW_PATH, options=1)
             call_media = self.getAudioMedia(-1)
             player.startTransmit(call_media)
@@ -347,7 +349,17 @@ class DoorbellCall(pj.Call):
             return
 
         self.audio_played = True
-        time.sleep(duration + 0.5)
+
+        # Process events briefly so the conference connection completes
+        # before we start sleeping. Without this, short files (<3s) can
+        # miss the first ~100ms while ports are being connected.
+        deadline = time.time() + duration + 0.5
+        while time.time() < deadline:
+            if _endpoint:
+                _endpoint.libHandleEvents(50)
+            else:
+                time.sleep(0.05)
+
         hangup_prm = pj.CallOpParam()
         self.hangup(hangup_prm)
         print("Hung up after playback.")
@@ -391,6 +403,8 @@ def setup_sip_endpoint():
     acc = DoorbellAccount()
     acc.create(acfg)
     print(f"SIP account created: {acfg.idUri}")
+    global _endpoint
+    _endpoint = ep
     return ep, acc
 
 
