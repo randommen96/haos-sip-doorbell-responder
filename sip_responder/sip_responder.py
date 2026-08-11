@@ -81,7 +81,7 @@ MQTT_PASSWORD = cfg["mqtt_password"]
 
 TTS_MESSAGE = cfg["tts_message"]
 TTS_WAV_PATH = cfg["tts_wav_path"]
-TTS_ULAW_PATH = "/tmp/doorbell_message.ulaw"
+TTS_ULAW_PATH = "/tmp/doorbell_message_ulaw.wav"
 TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
 TTS_ENGINE = cfg["tts_engine"]
 
@@ -172,7 +172,7 @@ def fetch_tts_from_ha(message):
             print(f"  Response: {audio_resp.text[:500]}")
             return None
 
-        tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
+        tmp = tempfile.NamedTemporaryFile(suffix=".audio", delete=False)
         tmp.write(audio_resp.content)
         tmp.close()
         print(f"Downloaded TTS WAV: {tmp.name}")
@@ -184,9 +184,10 @@ def fetch_tts_from_ha(message):
 
 
 def transcode_to_ulaw(wav_path):
-    """Convert a WAV file to G.711 mu-law. Returns path to .ulaw or None."""
+    """Convert an audio file (WAV or MP3 from Piper) to G.711 mu-law in a
+    WAV container. Returns path to the transcoded file or None."""
     ulaw_path = os.path.join(
-        "/tmp", os.path.basename(wav_path).replace(".wav", ".ulaw")
+        "/tmp", os.path.basename(wav_path).rsplit(".", 1)[0] + "_ulaw.wav"
     )
     result = subprocess.run(
         [

@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.10
+
+- Fixed ffmpeg transcode: Piper returns MP3 audio, not WAV. Output to
+  proper WAV container with mu-law codec (not raw .ulaw format which
+  ffmpeg doesn't recognize). Transcode works regardless of input format.
+- Renamed cached file to `.wav` extension for PJSIP compatibility.
+
 ## 1.0.9
 
 - Fixed TTS audio download: handle absolute URLs from HA (external_url
