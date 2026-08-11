@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.43
+
+- Increased pre-playback delay to 200ms for reliable audio start on all
+  calls. Prevents first syllables being lost on short messages.
+- Documented relay click fix: set I/O Output to Electric Lock mode.
+
 ## 1.0.42
 
 - Increased pre-playback delay to 100ms (from 50ms) for reliable
