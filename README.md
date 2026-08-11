@@ -78,10 +78,26 @@ The doorbell does not need to show "Registered" — it sends an INVITE directly 
 | `sip_username` | `doorbell` (must match doorbell's SIP Number) |
 | `sip_password` | Pick a password (must match doorbell's SIP Password) |
 | `tts_message` | What you want the doorbell to say |
-| `mqtt_username` | MQTT broker username (leave empty if none) |
-| `mqtt_password` | MQTT broker password (leave empty if none) |
+| `tts_voice` | Piper voice (e.g., `en_US-lessac-medium`). Empty = Piper default |
+| `sensor_name` | Name for the MQTT binary sensor entity |
+| `log_level` | PJSIP log level: 0=fatal, 1=error, 2=warning (default), 3=info, 4=debug, 5=trace |
+| `mqtt_username` | MQTT broker username (leave empty for auto-discovery) |
+| `mqtt_password` | MQTT broker password (leave empty for auto-discovery) |
 
-> No access token needed — the app uses the auto-injected Supervisor token to call HA's TTS API via the internal proxy.
+> No access token or MQTT credentials needed — the app uses the Supervisor to auto-provision both.
+
+### Log Levels
+
+The default `log_level: 2` (WARNING) suppresses most PJSIP noise. Only change if debugging:
+
+| Level | What you see |
+|---|---|
+| 0 | Fatal errors only |
+| 1 | Errors |
+| 2 | Warnings — quiet startup, ~3 lines |
+| 3 | Info — shows module registration |
+| 4 | Debug — detailed call flow |
+| 5 | Trace — every SIP message including REGISTER retries |
 
 5. Start the app. Check the **Log** tab — you should see:
    - `--- SIP Doorbell Responder ---`

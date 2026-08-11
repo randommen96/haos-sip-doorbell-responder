@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.33
+
+- Added in-app documentation (DOCS.md) with full option reference,
+  log level table, doorbell setup, automations, and troubleshooting.
+- Added `url` and `documentation` links to config.yaml for HA UI.
+- Documented log levels in README with usage guidance.
+
 ## 1.0.32
 
 - Added configurable `log_level` option (0-5, default 2). Reduces PJSIP
