@@ -65,6 +65,10 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 
 The doorbell does not need to show "Registered" — it sends an INVITE directly on button press regardless of registration status.
 
+### Disable Relay Click
+
+The doorbell clicks a relay on button press by default. To silence it: go to **Intercom → I/O Settings**, set **I/O Output → Output1** to **Electric Lock** (not Mechanical Doorbell). The relay won't click. Also set **Access Control → Door Parameters → Open Duration** to `1` second to minimize any pulse.
+
 ## Step 3: Install and Configure This App
 
 1. Add this repository URL to HA: **Settings** -> **Add-ons** -> **Add-on Store** -> **...** (menu) -> **Repositories**
