@@ -50,6 +50,7 @@ def load_options():
         "tts_voice": "",
         "mqtt_host": "",
         "mqtt_port": 1883,
+        "sensor_name": "Doorbell Pressed",
         "mqtt_username": "",
         "mqtt_password": "",
     }
