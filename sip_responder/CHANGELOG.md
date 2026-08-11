@@ -1,14 +1,17 @@
 # Changelog
 
+## 1.0.31
+
+- Fixed `sensor_name` option not being read from HA config (was missing
+  from Python defaults, silently filtered).
+- Updated changelog covering all previous versions.
+
 ## 1.0.30
 
 - Fixed MQTT authentication: added `services: ["mqtt:want"]` so the
-  Supervisor auto-provides broker credentials. No manual MQTT config
-  needed for standard HA setups.
+  Supervisor auto-provides broker credentials. No manual MQTT config.
 - Improved MQTT diagnostics: clear log messages for connection status,
   auth failures, and Supervisor service discovery.
-- Fixed `sensor_name` option not being read from HA config (was missing
-  from Python defaults, silently filtered).
 
 ## 1.0.29
 
