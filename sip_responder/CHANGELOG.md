@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.9
+
+- Fixed TTS audio download: handle absolute URLs from HA (external_url
+  config) by extracting path with urlparse, always route via Supervisor
+  proxy where SUPERVISOR_TOKEN is valid.
+- Added verbose logging for TTS generation and audio download.
+
+## 1.0.8
+
+- Removed ctypes ALSA error handler (segfault on some platforms).
+- ALSA noise (~60 startup lines) is cosmetic; a crash is worse.
+- Added SUPERVISOR_TOKEN as query param to audio download requests.
+
 ## 1.0.7
 
 - Eliminated ALSA/PulseAudio/JACK startup noise (0 lines now).

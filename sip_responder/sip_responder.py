@@ -153,15 +153,17 @@ def fetch_tts_from_ha(message):
             print(f"  Full response: {json.dumps(data)[:500]}")
             return None
 
-        # Download the audio. HA returns a relative path like
-        # /api/tts_proxy/abc123...  Try both the Supervisor proxy
-        # and direct download with token as query parameter.
-        download_url = f"http://supervisor/core{tts_url}"
+        # Download the audio file. HA may return a relative path
+        # (/api/tts_proxy/...) or an absolute URL if external_url
+        # is configured. We always route through the Supervisor proxy
+        # because SUPERVISOR_TOKEN only works internally.
+        from urllib.parse import urlparse
+        path = urlparse(tts_url).path  # strip scheme/host, keep /api/tts_proxy/...
+        download_url = f"http://supervisor/core{path}"
         print(f"TTS: downloading audio from {download_url}")
         audio_resp = requests.get(
             download_url,
             headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
-            params={"token": SUPERVISOR_TOKEN},
             timeout=15,
         )
         if audio_resp.status_code != 200:
