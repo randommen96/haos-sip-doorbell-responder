@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.5
+
+- Added CHANGELOG.md for HA Supervisor update notes
+- Suppressed ALSA/PulseAudio/JACK device scan noise at startup
+- Fixed Python log buffering (logs now appear in real time in HA)
+- Clearer SIP registration status and config summary at startup
+
 ## 1.0.4
 
 - Fixed s6-overlay compatibility with correct `with-contenv bashio` shebang
