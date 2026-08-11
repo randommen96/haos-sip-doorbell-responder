@@ -139,19 +139,24 @@ def publish_mqtt_discovery():
         "payload_on": "ON",
         "payload_off": "OFF",
         "unique_id": uid,
+        "off_delay": 10,  # keep ON for 10s max, then auto-off
     }
-    # Standard HA discovery topic: <discovery_prefix>/<component>/<node_id>/config
     topic = f"homeassistant/binary_sensor/{uid}/config"
-    mqtt_client.publish(topic, json.dumps(payload), retain=True)
-    print("MQTT discovery published.")
-    print(f"  Topic: {topic}")
-    print(f"  State topic: {DOORBELL_STATE_TOPIC}")
-    print(f"  Look for binary_sensor.doorbell_pressed in HA")
+    msg = mqtt_client.publish(topic, json.dumps(payload), qos=1, retain=True)
+    if msg.rc == mqtt.MQTT_ERR_SUCCESS:
+        print("MQTT discovery published (retained).")
+        print(f"  Topic: {topic}")
+        print(f"  State topic: {DOORBELL_STATE_TOPIC}")
+        print(f"  Entity: binary_sensor.doorbell_pressed")
+    else:
+        print(f"MQTT discovery failed: rc={msg.rc}")
 
 
 def publish_mqtt_doorbell_state(state):
     """Publish ON/OFF to the doorbell state topic."""
-    mqtt_client.publish(DOORBELL_STATE_TOPIC, "ON" if state else "OFF")
+    payload = "ON" if state else "OFF"
+    msg = mqtt_client.publish(DOORBELL_STATE_TOPIC, payload, qos=1)
+    print(f"MQTT publish: {DOORBELL_STATE_TOPIC} = {payload} (rc={msg.rc})")
 
 
 # ---------------------------------------------------------------------------
