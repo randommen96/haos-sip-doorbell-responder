@@ -45,8 +45,6 @@ def load_options():
         "tts_message": "Please use the other bell.",
         "tts_wav_path": "/media/tts/doorbell_message.wav",
         "tts_audio_duration": 5,
-        "ha_url": "http://homeassistant.local:8123",
-        "ha_token": "",
         "tts_engine": "tts.piper",
         "mqtt_host": "core-mosquitto",
         "mqtt_port": 1883,
@@ -84,10 +82,14 @@ TTS_MESSAGE = cfg["tts_message"]
 TTS_WAV_PATH = cfg["tts_wav_path"]
 TTS_ULAW_PATH = "/tmp/doorbell_message.ulaw"
 TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
-
-HA_URL = cfg["ha_url"].rstrip("/")
-HA_TOKEN = cfg["ha_token"]
 TTS_ENGINE = cfg["tts_engine"]
+
+# Supervisor-injected token — automatically available to all add-ons.
+# Used to call HA Core API via the internal proxy at http://supervisor/core/api/
+SUPERVISOR_TOKEN = _os.environ.get("SUPERVISOR_TOKEN", "")
+
+# Internal Supervisor proxy URL for HA Core API (no user config needed)
+HA_API_URL = "http://supervisor/core/api"
 
 # ---------------------------------------------------------------------------
 # MQTT
@@ -121,12 +123,13 @@ def publish_mqtt_doorbell_state(state):
 # ---------------------------------------------------------------------------
 
 def fetch_tts_from_ha(message):
-    """Call HA REST API to generate TTS and download the WAV. Returns path or None."""
+    """Call HA Core API (via Supervisor proxy) to generate TTS and download
+    the WAV. Uses the auto-injected SUPERVISOR_TOKEN — no user token needed."""
     try:
         resp = requests.post(
-            f"{HA_URL}/api/tts_get_url",
+            f"{HA_API_URL}/tts_get_url",
             headers={
-                "Authorization": f"Bearer {HA_TOKEN}",
+                "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
                 "Content-Type": "application/json",
             },
             json={
@@ -142,9 +145,11 @@ def fetch_tts_from_ha(message):
             print("ERROR: No URL in TTS response")
             return None
 
+        # The returned URL is a relative path like /api/tts_proxy/...
+        # Build the full URL using the Supervisor proxy
         audio_resp = requests.get(
-            f"{HA_URL}{tts_url}",
-            headers={"Authorization": f"Bearer {HA_TOKEN}"},
+            f"http://supervisor/core{tts_url}",
+            headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
             timeout=15,
         )
         audio_resp.raise_for_status()
@@ -185,7 +190,7 @@ def transcode_to_ulaw(wav_path):
 
 def generate_tts_audio():
     """Generate TTS audio at startup and cache as mu-law. Returns True if ready."""
-    if HA_TOKEN:
+    if SUPERVISOR_TOKEN:
         print(f"Generating TTS via HA API: '{TTS_MESSAGE}'")
         wav_path = fetch_tts_from_ha(TTS_MESSAGE)
         if wav_path:
@@ -317,7 +322,7 @@ def main():
     print(f"Config loaded from {OPTIONS_PATH}")
     print(f"  SIP: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT}" + (" (auth)" if MQTT_USERNAME else ""))
-    print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if HA_TOKEN else " [static file]"))
+    print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
 
     # 1. Connect MQTT
     try:
@@ -336,7 +341,7 @@ def main():
 
     # 3. Start SIP endpoint
     ep, acc = setup_sip_endpoint()
-    mode = "API (ha_token)" if HA_TOKEN else "static file"
+    mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP ready: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")

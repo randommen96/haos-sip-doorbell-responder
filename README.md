@@ -4,7 +4,7 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 
 ## How It Works
 
-1. At startup, the app generates a TTS audio file via HA's REST API (Piper), transcodes it to G.711 mu-law, and caches it.
+1. At startup, the app generates a TTS audio file via HA's TTS API (Piper) using the auto-injected Supervisor token, transcodes it to G.711 mu-law, and caches it.
 2. When the doorbell button is pressed, the doorbell sends a SIP INVITE to the app.
 3. The app answers, plays the cached audio, hangs up, and publishes `doorbell/state = ON/OFF` via MQTT.
 4. Home Assistant auto-discovers `binary_sensor.doorbell_pressed` for use in automations.
@@ -26,14 +26,7 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 7. Recommended voice: `en_US-lessac-medium` (good quality/speed balance). Configure in the Piper add-on settings.
    - Custom voices can be placed in `/share/piper` (`.onnx` + `.onnx.json` files)
 
-## Step 2: Create a Long-Lived Access Token
-
-1. In HA, click your profile icon (bottom-left) -> **Security**
-2. Scroll to **Long-Lived Access Tokens** -> **Create Token**
-3. Name it "SIP Doorbell" and copy the token
-4. You will paste this into the add-on config in Step 4
-
-## Step 3: Configure the Hikvision KB8113 Doorbell
+## Step 2: Configure the Hikvision KB8113 Doorbell
 
 1. Find the doorbell's IP address (check your router's DHCP list, or use the Hikvision SADP tool)
 2. Open a browser to `http://<doorbell-ip>`
@@ -53,7 +46,7 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 
 6. Save. Once the add-on is running, the status should show "Registered".
 
-## Step 4: Install and Configure This App
+## Step 3: Install and Configure This App
 
 1. Add this repository URL to HA: **Settings** -> **Add-ons** -> **Add-on Store** -> **...** (menu) -> **Repositories**
 2. Enter: `https://github.com/randommen96/haos-sip-doorbell-responder`
@@ -66,19 +59,21 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 | `sip_username` | `doorbell` (must match doorbell's SIP Number) |
 | `sip_password` | Pick a password (must match doorbell's SIP Password) |
 | `tts_message` | What you want the doorbell to say |
-| `ha_token` | Paste the long-lived token from Step 2 |
-| `ha_url` | `http://homeassistant.local:8123` (or your HA URL/IP) |
 | `mqtt_username` | MQTT broker username (leave empty if none) |
 | `mqtt_password` | MQTT broker password (leave empty if none) |
 
+> No access token needed — the app uses the auto-injected Supervisor token to call HA's TTS API via the internal proxy.
+
 5. Start the app. Check the **Log** tab — you should see:
+   - `--- SIP Doorbell Responder ---`
+   - `SIP: doorbell@<ip>:5060`
+   - `TTS: '...' [API]`
    - `Generating TTS via HA API: '...'`
-   - `Transcoded: ... -> /tmp/doorbell_message.ulaw`
    - `TTS ready: /tmp/doorbell_message.ulaw`
    - `SIP ready: doorbell@<ip>:5060`
    - `Waiting for doorbell rings...`
 
-## Step 5: Test
+## Step 4: Test
 
 1. Press the doorbell button
 2. In the app logs, you should see:
@@ -144,7 +139,7 @@ action:
 
 | Symptom | Likely Cause |
 |---|---|
-| "No TTS audio available" at startup | `ha_token` is empty or invalid. Check HA is reachable at `ha_url`. |
+| "No TTS audio available" at startup | TTS API call failed. Check Piper add-on is installed and running. The app log will show the specific error. |
 | Doorbell shows "Register Failed" | `sip_domain` IP is wrong or unreachable. Check UDP 5060 is not firewalled. |
 | Call connects but no audio | RTP ports 4000-4001/udp blocked. Doorbell audio codec not set to G.711 mu-law. |
 | Call drops immediately | Check app logs. Update doorbell firmware to V2.2.60+. |

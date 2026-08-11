@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.6
+
+- Replaced user-created `ha_token` with auto-injected `SUPERVISOR_TOKEN`
+- TTS API calls now use internal Supervisor proxy (`http://supervisor/core/api/`)
+- Added `homeassistant_api: true` to app config — no user token needed
+- Removed `ha_url` and `ha_token` from user options (simplified setup)
+- Moved CHANGELOG.md into app directory (where Supervisor expects it)
+
 ## 1.0.5
 
 - Added CHANGELOG.md for HA Supervisor update notes
