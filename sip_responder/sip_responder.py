@@ -280,8 +280,9 @@ class DoorbellAccount(pj.Account):
             print(f"SIP registration event: code={prm.code} reason={prm.reason}")
 
     def onIncomingCall(self, prm):
-        """Create our Call handler and answer immediately. pjsua2
-        auto-rejects with 603 if we don't answer in this callback."""
+        """Answer incoming call immediately. The doorbell sends H264
+        video in SDP — we only do audio, so we must answer before PJSIP
+        has a chance to fail the call on video negotiation."""
         call = DoorbellCall(self, prm.callId)
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
@@ -358,11 +359,12 @@ def setup_sip_endpoint():
     acfg = pj.AccountConfig()
     acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}"
     # Do NOT set registrarUri — we don't register to anyone.
-    # We just listen for incoming INVITEs to our URI. The doorbell
-    # sends INVITE to sip:doorbell@<ha-host>:5060 and PJSIP matches
-    # it to this account, triggering onCallState(INCOMING).
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
     acfg.mediaConfig.transportConfig.portRange = 1
+    # Disable video: the doorbell sends H264 in SDP; rejecting the
+    # video stream is safer than PJSIP failing the entire call.
+    acfg.videoConfig.autoShowIncoming = False
+    acfg.videoConfig.autoTransmitOutgoing = False
 
     acc = DoorbellAccount()
     acc.create(acfg)
