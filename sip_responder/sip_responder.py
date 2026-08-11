@@ -39,7 +39,6 @@ def load_options():
     defaults = {
         "sip_username": "doorbell",
         "sip_password": "change_me",
-        "sip_extensions": "",
         "sip_display_name": "Doorbell Responder",
         "sip_domain": "192.168.1.100",
         "sip_port": 5060,
@@ -350,29 +349,19 @@ def setup_sip_endpoint():
     ep.audDevManager().setNullDev()
     ep.libStart()
 
-    # Create an account for each extension we want to accept calls for.
-    # The doorbell calls a specific number (configured in its Number
-    # Settings). We listen on the configured username AND the common
-    # doorbell defaults 6001/6002.
-    extensions = {SIP_USERNAME}
-    extensions.update(cfg.get("sip_extensions", "").replace(" ", "").split(","))
-    # Always include common doorbell defaults
-    extensions.update({"6001", "6002"})
-    extensions.discard("")  # remove empty string if any
+    acfg = pj.AccountConfig()
+    acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}"
+    # Do NOT set registrarUri — we don't register to anyone.
+    # We just listen for incoming INVITEs to our URI. The doorbell
+    # sends INVITE to sip:doorbell@<ha-host>:5060 and PJSIP matches
+    # it to this account, triggering onCallState(INCOMING).
+    acfg.mediaConfig.transportConfig.port = RTP_PORT_START
+    acfg.mediaConfig.transportConfig.portRange = 1
 
-    for ext in extensions:
-        acfg = pj.AccountConfig()
-        acfg.idUri = f"sip:{ext}@{SIP_DOMAIN}:{SIP_PORT}"
-        # Do NOT set registrarUri — we don't register to anyone.
-        # We just listen for incoming INVITEs matching these URIs.
-        acfg.mediaConfig.transportConfig.port = RTP_PORT_START
-        acfg.mediaConfig.transportConfig.portRange = 1
-        acc = DoorbellAccount()
-        acc.create(acfg)
-        print(f"SIP account created: {acfg.idUri}")
-
-    print(f"SIP listening on {len(extensions)} extension(s)")
-    return ep
+    acc = DoorbellAccount()
+    acc.create(acfg)
+    print(f"SIP account created: {acfg.idUri}")
+    return ep, acc
 
 
 # ---------------------------------------------------------------------------
@@ -412,7 +401,7 @@ def main():
         print("FATAL: No TTS audio available. App will answer calls but play silence.")
 
     # 3. Start SIP endpoint
-    ep = setup_sip_endpoint()
+    ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
