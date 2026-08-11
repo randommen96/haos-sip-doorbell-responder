@@ -86,6 +86,7 @@ def discover_mqtt_broker():
     Returns (host, port, username, password) or None if not available."""
     token = _os.environ.get("SUPERVISOR_TOKEN", "")
     if not token:
+        print("MQTT: no SUPERVISOR_TOKEN, cannot auto-discover broker.")
         return None
     try:
         resp = requests.get(
@@ -99,10 +100,14 @@ def discover_mqtt_broker():
             port = data.get("port", 1883)
             user = data.get("username", "")
             pwd = data.get("password", "")
-            print(f"MQTT broker discovered via Supervisor: {host}:{port}")
+            print(f"MQTT broker discovered via Supervisor: {host}:{port}" +
+                  (" (auth)" if user else " (no auth)"))
             return host, port, user, pwd
+        else:
+            print(f"MQTT broker discovery failed: HTTP {resp.status_code}")
+            print(f"  Response: {resp.text[:200]}")
     except Exception as e:
-        print(f"MQTT discovery skipped: {e}")
+        print(f"MQTT broker discovery error: {e}")
     return None
 
 TTS_MESSAGE = cfg["tts_message"]
@@ -129,11 +134,18 @@ mqtt_client = mqtt.Client(client_id="sip_doorbell_responder")
 mqtt_client.reconnect_delay_set(min_delay=1, max_delay=30)
 
 def _on_mqtt_connect(client, userdata, flags, rc):
-    print(f"MQTT connected (rc={rc})")
-    publish_mqtt_discovery()
+    if rc == 0:
+        print("MQTT connected.")
+        publish_mqtt_discovery()
+    elif rc == 5:
+        print("MQTT connection refused: not authorized (rc=5).")
+        print("  Configure mqtt_username and mqtt_password in the app settings.")
+    else:
+        print(f"MQTT connection failed (rc={rc})")
 
 def _on_mqtt_disconnect(client, userdata, rc):
-    print(f"MQTT disconnected (rc={rc}), auto-reconnecting...")
+    if rc != 0:
+        print(f"MQTT disconnected (rc={rc}), auto-reconnecting...")
 
 mqtt_client.on_connect = _on_mqtt_connect
 mqtt_client.on_disconnect = _on_mqtt_disconnect
