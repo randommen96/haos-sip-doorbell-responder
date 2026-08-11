@@ -350,16 +350,17 @@ def setup_sip_endpoint():
     ep.libStart()
 
     acfg = pj.AccountConfig()
-    acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}"
-    acfg.regConfig.registrarUri = f"sip:{SIP_DOMAIN}:{SIP_PORT}"
-    acfg.sipConfig.authCreds.append(
-        pj.AuthCredInfo("digest", "*", SIP_USERNAME, 0, SIP_PASSWORD)
-    )
+    acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}"
+    # Do NOT set registrarUri — we don't register to anyone.
+    # We just listen for incoming INVITEs to our URI. The doorbell
+    # sends INVITE to sip:doorbell@<ha-host>:5060 and PJSIP matches
+    # it to this account, triggering onCallState(INCOMING).
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
     acfg.mediaConfig.transportConfig.portRange = 1
 
     acc = DoorbellAccount()
     acc.create(acfg)
+    print(f"SIP account created: {acfg.idUri}")
     return ep, acc
 
 
@@ -402,7 +403,7 @@ def main():
     # 3. Start SIP endpoint
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
-    print(f"SIP ready: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
+    print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 

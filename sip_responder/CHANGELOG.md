@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.13
+
+- Removed SIP registration (pjsua2 has no registrar module). App now
+  listens passively for incoming INVITEs without trying to register
+  to itself. The doorbell sends INVITE on button press regardless of
+  registration status.
+
 ## 1.0.12
 
 - Auto-discover HA's built-in MQTT broker via Supervisor services API.
