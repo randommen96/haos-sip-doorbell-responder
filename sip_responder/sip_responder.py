@@ -9,20 +9,11 @@ Answers Hikvision KB8113 doorbell SIP calls and plays a Piper TTS message.
 import sys as _sys
 _sys.stdout.reconfigure(line_buffering=True)
 
-# Suppress ALSA/PulseAudio/JACK noise before PJSIP initializes PortAudio.
-# The container has no sound hardware -- we use PJSIP's null audio device.
-# snd_lib_error_set_handler(NULL) resets to the DEFAULT handler (prints).
-# We must pass a custom no-op callback to actually silence ALSA output.
-import ctypes as _ct
+# Suppress PulseAudio/JACK client connection noise in headless container.
+# ALSA noise (~60 lines of card scan / virtual PCM spam) is harmless
+# and we cannot safely suppress it (ctypes ALSA error handler causes
+# segfaults on some platforms due to va_list ABI mismatch).
 import os as _os
-try:
-    _asound = _ct.cdll.LoadLibrary("libasound.so.2")
-    # Define a no-op error handler: (file, line, function, err, fmt, ...) -> None
-    _NOOP = _ct.CFUNCTYPE(None, _ct.c_char_p, _ct.c_int, _ct.c_char_p,
-                          _ct.c_int, _ct.c_char_p)
-    _asound.snd_lib_error_set_handler(_NOOP(lambda *a: None))
-except Exception:
-    pass
 _os.environ.setdefault("PULSE_SERVER", "none")
 _os.environ.setdefault("JACK_NO_START_SERVER", "1")
 
@@ -136,6 +127,7 @@ def fetch_tts_from_ha(message):
     """Call HA Core API (via Supervisor proxy) to generate TTS and download
     the WAV. Uses the auto-injected SUPERVISOR_TOKEN — no user token needed."""
     try:
+        print(f"TTS: POST {HA_API_URL}/tts_get_url engine={TTS_ENGINE}")
         resp = requests.post(
             f"{HA_API_URL}/tts_get_url",
             headers={
@@ -151,26 +143,31 @@ def fetch_tts_from_ha(message):
         )
         if resp.status_code != 200:
             print(f"TTS API error: HTTP {resp.status_code}")
-            try:
-                print(f"  Response: {resp.text[:500]}")
-            except Exception:
-                pass
+            print(f"  URL: {HA_API_URL}/tts_get_url")
+            print(f"  Response: {resp.text[:500]}")
             return None
         data = resp.json()
         tts_url = data.get("url")
         if not tts_url:
-            print(f"ERROR: No URL in TTS response. Keys: {list(data.keys())}")
+            print(f"ERROR: No 'url' in TTS response. Got keys: {list(data.keys())}")
+            print(f"  Full response: {json.dumps(data)[:500]}")
             return None
 
-        # The returned URL is a relative path like /api/tts_proxy/...
-        # Build the full URL using the Supervisor proxy
+        # Download the audio. HA returns a relative path like
+        # /api/tts_proxy/abc123...  Try both the Supervisor proxy
+        # and direct download with token as query parameter.
+        download_url = f"http://supervisor/core{tts_url}"
+        print(f"TTS: downloading audio from {download_url}")
         audio_resp = requests.get(
-            f"http://supervisor/core{tts_url}",
+            download_url,
             headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
+            params={"token": SUPERVISOR_TOKEN},
             timeout=15,
         )
         if audio_resp.status_code != 200:
             print(f"TTS audio download error: HTTP {audio_resp.status_code}")
+            print(f"  URL: {download_url}")
+            print(f"  Response: {audio_resp.text[:500]}")
             return None
 
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
