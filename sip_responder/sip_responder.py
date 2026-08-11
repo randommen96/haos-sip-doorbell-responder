@@ -272,6 +272,12 @@ def generate_tts_audio():
 # SIP — PJSIP callbacks
 # ---------------------------------------------------------------------------
 
+# Persistent storage for Call objects. The pjsua2 Python bindings have a
+# documented GC issue: if a Call is garbage-collected after onIncomingCall
+# returns, PJSIP auto-rejects with 603 Decline.
+_active_calls = {}
+
+
 class DoorbellAccount(pj.Account):
     def onRegState(self, prm):
         if prm.code == 200:
@@ -280,15 +286,16 @@ class DoorbellAccount(pj.Account):
             print(f"SIP registration event: code={prm.code} reason={prm.reason}")
 
     def onIncomingCall(self, prm):
-        """Answer with 180 Ringing first, then 200 OK later in
-        onCallState. Answering with 200 immediately causes PJSIP
-        to hang up internally before media transport is ready."""
         call = DoorbellCall(self, prm.callId)
+        # Store to prevent Python GC. The pjsua2 docs warn: if a Call
+        # object is garbage-collected, PJSIP auto-rejects with 603.
+        _active_calls[prm.callId] = call
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
         call_prm = pj.CallOpParam()
-        call_prm.statusCode = 180  # Ringing
+        call_prm.statusCode = 200
         call.answer(call_prm)
+        print("Call answered (200 OK).")
         return call
 
 
@@ -300,20 +307,14 @@ class DoorbellCall(pj.Call):
     def onCallState(self, prm):
         state = self.info().state
 
-        if state == pj.PJSIP_INV_STATE_INCOMING:
-            print("Incoming call — answering...")
-            call_prm = pj.CallOpParam()
-            call_prm.statusCode = 200
-            self.answer(call_prm)
-            print("Call answered (200 OK).")
-
-        elif state == pj.PJSIP_INV_STATE_CONFIRMED:
+        if state == pj.PJSIP_INV_STATE_CONFIRMED:
             print("Call confirmed. Playing TTS audio...")
             self.play_tts_audio()
 
         elif state == pj.PJSIP_INV_STATE_DISCONNECTED:
             print("Call disconnected.")
             publish_mqtt_doorbell_state(False)
+            _active_calls.pop(self.getId(), None)
 
     def play_tts_audio(self):
         """Play cached mu-law audio into the active call."""
@@ -366,12 +367,17 @@ def setup_sip_endpoint():
 
     acfg = pj.AccountConfig()
     acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}"
-    # Do NOT set registrarUri — we don't register to anyone.
+    # Register to ourselves. This puts our URI in the internal location
+    # table so incoming INVITEs from the doorbell can be matched to this
+    # account. Without this binding, PJSIP drops INVITEs.
+    acfg.regConfig.registrarUri = f"sip:{SIP_DOMAIN}:{SIP_PORT}"
+    acfg.sipConfig.authCreds.append(
+        pj.AuthCredInfo("digest", "*", SIP_USERNAME, 0, SIP_PASSWORD)
+    )
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
     acfg.mediaConfig.transportConfig.portRange = 1
-    # Disable video: the doorbell sends H264 in SDP; rejecting the
-    # video stream is safer than PJSIP failing the entire call.
     acfg.videoConfig.autoShowIncoming = False
+    acfg.videoConfig.autoTransmitOutgoing = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
     acc = DoorbellAccount()
