@@ -1,7 +1,11 @@
 FROM ghcr.io/home-assistant/homeassistant-base:latest
 
-# apk installs to /usr/lib, Python in this image uses /usr/local/lib
-ENV PYTHONPATH=/usr/lib/python3.14/site-packages
+# apk installs Python packages to /usr/lib, but this image's Python
+# looks in /usr/local/lib. A .pth file reliably adds the path at
+# Python startup regardless of environment (ENV vars can be stripped
+# by s6-overlay).
+RUN echo "/usr/lib/python3.14/site-packages" \
+        > /usr/local/lib/python3.14/site-packages/apk-packages.pth
 
 RUN apk add --no-cache \
     py3-pjsua \
