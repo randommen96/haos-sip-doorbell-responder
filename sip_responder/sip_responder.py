@@ -28,6 +28,8 @@ RTP_PORT_START = int(os.getenv("RTP_PORT_START", "4000"))
 
 MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
 MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
+MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
+MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 
 TTS_MESSAGE = os.getenv("TTS_MESSAGE", "Please use the other bell.")
 TTS_WAV_PATH = os.getenv("TTS_WAV_PATH", "/media/tts/doorbell_message.wav")
@@ -260,6 +262,8 @@ def setup_sip_endpoint():
 def main():
     # 1. Connect MQTT
     try:
+        if MQTT_USERNAME:
+            mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
         mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
         mqtt_client.loop_start()
         publish_mqtt_discovery()
@@ -269,7 +273,7 @@ def main():
 
     # 2. Generate TTS audio at startup
     if not generate_tts_audio():
-        print("FATAL: No TTS audio available. Add-on will answer calls but play silence.")
+        print("FATAL: No TTS audio available. App will answer calls but play silence.")
 
     # 3. Start SIP endpoint
     ep, acc = setup_sip_endpoint()

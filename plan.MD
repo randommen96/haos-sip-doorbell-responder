@@ -1,3 +1,5 @@
+claude --resume 23417064-67c8-4dff-a598-338e7bb63405
+
 Complete Implementation Plan: SIP Doorbell Responder with TTS
 Overview
 A lightweight Python add-on for Home Assistant OS that acts as a SIP server for your Hikvision KB8113-IME1 doorbell. When the doorbell button is pressed, it answers the call, plays a Text-to-Speech message, hangs up, and publishes an MQTT event for automations. The TTS message is configurable in the add-on UI — change the text, restart the add-on, and the new message is generated at startup via Piper.

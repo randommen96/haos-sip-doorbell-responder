@@ -1,12 +1,12 @@
 # SIP Doorbell Responder
 
-Home Assistant add-on that answers SIP calls from a Hikvision KB8113-IME1 doorbell, plays a text-to-speech message via Piper, and publishes MQTT events for automations.
+Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 doorbell, plays a text-to-speech message via Piper, and publishes MQTT events for automations.
 
 ## How It Works
 
-1. At startup, the add-on generates a TTS audio file via HA's REST API (Piper), transcodes it to G.711 mu-law, and caches it.
-2. When the doorbell button is pressed, the doorbell sends a SIP INVITE to the add-on.
-3. The add-on answers, plays the cached audio, hangs up, and publishes `doorbell/state = ON/OFF` via MQTT.
+1. At startup, the app generates a TTS audio file via HA's REST API (Piper), transcodes it to G.711 mu-law, and caches it.
+2. When the doorbell button is pressed, the doorbell sends a SIP INVITE to the app.
+3. The app answers, plays the cached audio, hangs up, and publishes `doorbell/state = ON/OFF` via MQTT.
 4. Home Assistant auto-discovers `binary_sensor.doorbell_pressed` for use in automations.
 
 ## Prerequisites
@@ -53,12 +53,12 @@ Home Assistant add-on that answers SIP calls from a Hikvision KB8113-IME1 doorbe
 
 6. Save. Once the add-on is running, the status should show "Registered".
 
-## Step 4: Install and Configure This Add-on
+## Step 4: Install and Configure This App
 
 1. Add this repository URL to HA: **Settings** -> **Add-ons** -> **Add-on Store** -> **...** (menu) -> **Repositories**
 2. Enter: `https://github.com/randommen96/haos-sip-doorbell-responder`
 3. Install "SIP Doorbell Responder"
-4. Go to the add-on's **Configuration** tab and set:
+4. Go to the app's **Configuration** tab and set:
 
 | Option | Value |
 |---|---|
@@ -68,8 +68,10 @@ Home Assistant add-on that answers SIP calls from a Hikvision KB8113-IME1 doorbe
 | `tts_message` | What you want the doorbell to say |
 | `ha_token` | Paste the long-lived token from Step 2 |
 | `ha_url` | `http://homeassistant.local:8123` (or your HA URL/IP) |
+| `mqtt_username` | MQTT broker username (leave empty if none) |
+| `mqtt_password` | MQTT broker password (leave empty if none) |
 
-5. Start the add-on. Check the **Log** tab — you should see:
+5. Start the app. Check the **Log** tab — you should see:
    - `Generating TTS via HA API: '...'`
    - `Transcoded: ... -> /tmp/doorbell_message.ulaw`
    - `TTS ready: /tmp/doorbell_message.ulaw`
@@ -79,7 +81,7 @@ Home Assistant add-on that answers SIP calls from a Hikvision KB8113-IME1 doorbe
 ## Step 5: Test
 
 1. Press the doorbell button
-2. In the add-on logs, you should see:
+2. In the app logs, you should see:
    - `Doorbell button pressed! Publishing event...`
    - `Call answered (200 OK).`
    - `Call confirmed. Playing TTS audio...`
@@ -91,8 +93,8 @@ Home Assistant add-on that answers SIP calls from a Hikvision KB8113-IME1 doorbe
 
 ## Changing the Message
 
-1. Edit `tts_message` in the add-on **Configuration** tab
-2. Restart the add-on
+1. Edit `tts_message` in the app's **Configuration** tab
+2. Restart the app
 3. The new audio is generated at startup
 
 ## Firewall & Network
@@ -103,7 +105,7 @@ These ports must be reachable:
 |---|---|---|
 | 5060 | UDP | Doorbell -> HA host (SIP signalling) |
 | 4000-4001 | UDP | Doorbell -> HA host (RTP audio) |
-| 8123 | TCP | Add-on container -> HA (TTS API at startup) |
+| 8123 | TCP | App container -> HA (TTS API at startup) |
 
 If your doorbell and HA are on different VLANs/subnets, ensure routing allows these.
 
@@ -145,16 +147,17 @@ action:
 | "No TTS audio available" at startup | `ha_token` is empty or invalid. Check HA is reachable at `ha_url`. |
 | Doorbell shows "Register Failed" | `sip_domain` IP is wrong or unreachable. Check UDP 5060 is not firewalled. |
 | Call connects but no audio | RTP ports 4000-4001/udp blocked. Doorbell audio codec not set to G.711 mu-law. |
-| Call drops immediately | Check add-on logs. Update doorbell firmware to V2.2.60+. |
+| Call drops immediately | Check app logs. Update doorbell firmware to V2.2.60+. |
 | Three beeps / "calling failed" on doorbell | In doorbell settings, ensure "Call Management Center" is NOT selected. |
 | Cannot hear message clearly | Try a different voice in Piper config. Ensure ffmpeg transcode completed without errors. |
+| MQTT connection refused | If your broker requires authentication, set `mqtt_username` and `mqtt_password`. |
 
 ## Files
 
 ```
-repository.yaml              HA add-on repository manifest
+repository.yaml              HA app repository manifest
 sip_responder/
-  config.yaml                Add-on manifest, options, schema
+  config.yaml                App manifest, options, schema
   Dockerfile                 Container build
   run.sh                     Reads HA options, launches Python
   sip_responder.py           Main logic: SIP + MQTT + TTS
