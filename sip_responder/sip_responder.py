@@ -447,17 +447,27 @@ def main():
     mqtt_port = MQTT_PORT
     mqtt_user = MQTT_USERNAME
     mqtt_pass = MQTT_PASSWORD
-    if not mqtt_host or mqtt_host == "core-mosquitto":
+
+    if mqtt_user:
+        print(f"MQTT: using configured credentials for {mqtt_host}:{mqtt_port}")
+    elif not mqtt_host or mqtt_host == "core-mosquitto":
+        print("MQTT: no credentials configured, trying Supervisor service discovery...")
         discovered = discover_mqtt_broker()
         if discovered:
             mqtt_host, mqtt_port, mqtt_user, mqtt_pass = discovered
+            print(f"MQTT: using discovered broker {mqtt_host}:{mqtt_port}")
+        else:
+            print("MQTT: Supervisor discovery failed — broker may require auth.")
+            print("  If connection fails, set mqtt_username and mqtt_password")
+            print("  in the app configuration (Mosquitto add-on -> Configuration).")
+
     try:
         if mqtt_user:
             mqtt_client.username_pw_set(mqtt_user, mqtt_pass)
         mqtt_client.connect_async(mqtt_host, mqtt_port, keepalive=30)
         mqtt_client.loop_start()
-        # discovery is published in on_connect callback
-        print(f"MQTT connecting: {mqtt_host}:{mqtt_port}")
+        print(f"MQTT connecting to {mqtt_host}:{mqtt_port}" +
+              (" (authenticated)" if mqtt_user else " (no auth)"))
     except Exception as e:
         print(f"MQTT connection failed: {e}")
         print("Continuing without MQTT — doorbell state will not be published.")
