@@ -48,7 +48,7 @@ def load_options():
         "tts_audio_duration": 5,
         "tts_engine": "tts.piper",
         "tts_voice": "",
-        "mqtt_host": "core-mosquitto",
+        "mqtt_host": "",
         "mqtt_port": 1883,
         "mqtt_username": "",
         "mqtt_password": "",
@@ -79,6 +79,31 @@ MQTT_HOST = cfg["mqtt_host"]
 MQTT_PORT = cfg["mqtt_port"]
 MQTT_USERNAME = cfg["mqtt_username"]
 MQTT_PASSWORD = cfg["mqtt_password"]
+
+
+def discover_mqtt_broker():
+    """Try to auto-discover HA's built-in MQTT broker via Supervisor API.
+    Returns (host, port, username, password) or None if not available."""
+    token = _os.environ.get("SUPERVISOR_TOKEN", "")
+    if not token:
+        return None
+    try:
+        resp = requests.get(
+            "http://supervisor/services/mqtt",
+            headers={"Authorization": f"Bearer {token}"},
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            data = resp.json().get("data", {})
+            host = data.get("host", "core-mosquitto")
+            port = data.get("port", 1883)
+            user = data.get("username", "")
+            pwd = data.get("password", "")
+            print(f"MQTT broker discovered via Supervisor: {host}:{port}")
+            return host, port, user, pwd
+    except Exception as e:
+        print(f"MQTT discovery skipped: {e}")
+    return None
 
 TTS_MESSAGE = cfg["tts_message"]
 TTS_WAV_PATH = cfg["tts_wav_path"]
@@ -346,16 +371,26 @@ def main():
     print("--- SIP Doorbell Responder ---")
     print(f"Config loaded from {OPTIONS_PATH}")
     print(f"  SIP: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
-    print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT}" + (" (auth)" if MQTT_USERNAME else ""))
+    mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
+    print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
 
-    # 1. Connect MQTT
+    # 1. Connect MQTT — auto-discover HA built-in broker if not configured
+    mqtt_host = MQTT_HOST
+    mqtt_port = MQTT_PORT
+    mqtt_user = MQTT_USERNAME
+    mqtt_pass = MQTT_PASSWORD
+    if not mqtt_host or mqtt_host == "core-mosquitto":
+        discovered = discover_mqtt_broker()
+        if discovered:
+            mqtt_host, mqtt_port, mqtt_user, mqtt_pass = discovered
     try:
-        if MQTT_USERNAME:
-            mqtt_client.username_pw_set(MQTT_USERNAME, MQTT_PASSWORD)
-        mqtt_client.connect(MQTT_HOST, MQTT_PORT, 60)
+        if mqtt_user:
+            mqtt_client.username_pw_set(mqtt_user, mqtt_pass)
+        mqtt_client.connect(mqtt_host, mqtt_port, 60)
         mqtt_client.loop_start()
         publish_mqtt_discovery()
+        print(f"MQTT connected: {mqtt_host}:{mqtt_port}")
     except Exception as e:
         print(f"MQTT connection failed: {e}")
         print("Continuing without MQTT — doorbell state will not be published.")

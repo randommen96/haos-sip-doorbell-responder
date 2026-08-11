@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.12
+
+- Auto-discover HA's built-in MQTT broker via Supervisor services API.
+  Leave `mqtt_host` empty to use the built-in broker — no manual MQTT
+  config needed. Same pattern as `homeassistant_api` for the HA token.
+
+## 1.0.11
+
+- Added `tts_voice` option to select a custom Piper voice/language.
+  Leave empty to use Piper's default. Examples: en_US-lessac-medium,
+  nl_NL-mls-medium, de_DE-thorsten-high, etc.
+
 ## 1.0.10
 
 - Fixed ffmpeg transcode: Piper returns MP3 audio, not WAV. Output to

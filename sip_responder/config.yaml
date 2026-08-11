@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.11"
+version: "1.0.12"
 slug: "sip_responder"
 init: false
 homeassistant_api: true
@@ -30,7 +30,7 @@ options:
   tts_audio_duration: 5
   tts_engine: "tts.piper"
   tts_voice: ""
-  mqtt_host: "core-mosquitto"
+  mqtt_host: ""
   mqtt_port: 1883
   mqtt_username: ""
   mqtt_password: ""
