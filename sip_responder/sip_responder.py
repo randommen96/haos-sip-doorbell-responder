@@ -5,9 +5,28 @@ Answers Hikvision KB8113 doorbell SIP calls and plays a Piper TTS message.
 """
 
 # Unbuffered stdout: Docker pipes are not TTYs, so Python buffers output.
-# Without this, log lines may not appear until process exit.
 import sys as _sys
 _sys.stdout.reconfigure(line_buffering=True)
+
+# Timestamped print for clear log chronology.
+import time
+import builtins as _bi
+_orig_print = _bi.print
+
+
+def _ts_print(*args, **kwargs):
+    _orig_print(time.strftime("%H:%M:%S"), *args, **kwargs)
+
+
+_bi.print = _ts_print
+
+
+def _ts_print(*args, **kwargs):
+    ts = time.strftime("%H:%M:%S")
+    _orig_print(f"{ts}", *args, **kwargs)
+
+
+_bi.print = _ts_print
 
 # Suppress PulseAudio/JACK client connection noise in headless container.
 # ALSA noise (~60 lines of card scan / virtual PCM spam) is harmless
@@ -25,7 +44,6 @@ import subprocess
 import requests
 import shutil
 import tempfile
-import time
 
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import load_options, OPTIONS_PATH  # noqa: E402
@@ -332,10 +350,17 @@ class DoorbellCall(pj.Call):
             return
 
         print(f"Playing: {TTS_ULAW_PATH}")
-        # Calculate duration from file: mu-law is 8000 bytes/sec
         file_size = os.path.getsize(TTS_ULAW_PATH)
         duration = file_size / 8000
         print(f"  File: {file_size} bytes, ~{duration:.1f}s")
+
+        # Brief delay for doorbell RTP receiver setup. The 200 OK was
+        # just sent; the doorbell's media engine needs ~200ms to start
+        # its decoder. Without this, first frames are lost.
+        deadline = time.time() + 0.2
+        while time.time() < deadline:
+            if _endpoint:
+                _endpoint.libHandleEvents(20)
 
         try:
             player = pj.AudioMediaPlayer()

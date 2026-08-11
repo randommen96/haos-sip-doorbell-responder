@@ -1,5 +1,17 @@
 # Changelog
 
+## 1.0.41
+
+- Added timestamps to all log output (HH:MM:SS prefix).
+- Added 200ms pre-playback delay for doorbell RTP receiver setup.
+  Fixes cut-off on short messages (<2s).
+- Replaced time.sleep() with libHandleEvents() loop during playback.
+
+## 1.0.40
+
+- Fixed short TTS messages: process events during playback so conference
+  ports connect immediately instead of blocking on time.sleep().
+
 ## 1.0.39
 
 - Added tests: audio transcode, TTS URL parsing, MQTT discovery payload
