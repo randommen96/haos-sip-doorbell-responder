@@ -381,13 +381,8 @@ def setup_sip_endpoint():
 
     acfg = pj.AccountConfig()
     acfg.idUri = f"sip:{SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}"
-    # Register to ourselves. This puts our URI in the internal location
-    # table so incoming INVITEs from the doorbell can be matched to this
-    # account. Without this binding, PJSIP drops INVITEs.
-    acfg.regConfig.registrarUri = f"sip:{SIP_DOMAIN}:{SIP_PORT}"
-    acfg.sipConfig.authCreds.append(
-        pj.AuthCredInfo("digest", "*", SIP_USERNAME, 0, SIP_PASSWORD)
-    )
+    # No self-registration — the GC fix (store Call objects) was the
+    # real 603 fix. Registration adds 408 timeout noise on every cycle.
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
     acfg.mediaConfig.transportConfig.portRange = 1
     acfg.videoConfig.autoShowIncoming = False
