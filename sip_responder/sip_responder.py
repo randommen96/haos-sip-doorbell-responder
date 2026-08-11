@@ -47,6 +47,7 @@ def load_options():
         "tts_wav_path": "/media/tts/doorbell_message.wav",
         "tts_audio_duration": 5,
         "tts_engine": "tts.piper",
+        "tts_voice": "",
         "mqtt_host": "core-mosquitto",
         "mqtt_port": 1883,
         "mqtt_username": "",
@@ -84,6 +85,7 @@ TTS_WAV_PATH = cfg["tts_wav_path"]
 TTS_ULAW_PATH = "/tmp/doorbell_message_ulaw.wav"
 TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
 TTS_ENGINE = cfg["tts_engine"]
+TTS_VOICE = cfg.get("tts_voice", "")
 
 # Supervisor-injected token — automatically available to all add-ons.
 # Used to call HA Core API via the internal proxy at http://supervisor/core/api/
@@ -127,18 +129,22 @@ def fetch_tts_from_ha(message):
     """Call HA Core API (via Supervisor proxy) to generate TTS and download
     the WAV. Uses the auto-injected SUPERVISOR_TOKEN — no user token needed."""
     try:
-        print(f"TTS: POST {HA_API_URL}/tts_get_url engine={TTS_ENGINE}")
+        voice_info = f" voice={TTS_VOICE}" if TTS_VOICE else ""
+        print(f"TTS: POST {HA_API_URL}/tts_get_url engine={TTS_ENGINE}{voice_info}")
+        body = {
+            "engine_id": TTS_ENGINE,
+            "message": message,
+            "cache": True,
+        }
+        if TTS_VOICE:
+            body["options"] = {"voice": TTS_VOICE}
         resp = requests.post(
             f"{HA_API_URL}/tts_get_url",
             headers={
                 "Authorization": f"Bearer {SUPERVISOR_TOKEN}",
                 "Content-Type": "application/json",
             },
-            json={
-                "engine_id": TTS_ENGINE,
-                "message": message,
-                "cache": True,
-            },
+            json=body,
             timeout=15,
         )
         if resp.status_code != 200:
