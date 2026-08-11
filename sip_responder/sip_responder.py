@@ -13,32 +13,69 @@ import requests
 import shutil
 import tempfile
 import time
-import sys
 
 # ---------------------------------------------------------------------------
-# Configuration from environment (set by run.sh via HA add-on options)
+# Configuration — read from HA options.json (mounted at /data/options.json)
 # ---------------------------------------------------------------------------
 
-SIP_USERNAME = os.getenv("SIP_USERNAME", "doorbell")
-SIP_PASSWORD = os.getenv("SIP_PASSWORD", "change_me")
-SIP_DISPLAY_NAME = os.getenv("SIP_DISPLAY_NAME", "Doorbell Responder")
-SIP_DOMAIN = os.getenv("SIP_DOMAIN", "192.168.1.100")
-SIP_PORT = int(os.getenv("SIP_PORT", "5060"))
-RTP_PORT_START = int(os.getenv("RTP_PORT_START", "4000"))
+OPTIONS_PATH = "/data/options.json"
 
-MQTT_HOST = os.getenv("MQTT_HOST", "core-mosquitto")
-MQTT_PORT = int(os.getenv("MQTT_PORT", "1883"))
-MQTT_USERNAME = os.getenv("MQTT_USERNAME", "")
-MQTT_PASSWORD = os.getenv("MQTT_PASSWORD", "")
 
-TTS_MESSAGE = os.getenv("TTS_MESSAGE", "Please use the other bell.")
-TTS_WAV_PATH = os.getenv("TTS_WAV_PATH", "/media/tts/doorbell_message.wav")
-TTS_ULAW_PATH = os.getenv("TTS_ULAW_PATH", "/tmp/doorbell_message.ulaw")
-TTS_AUDIO_DURATION = int(os.getenv("TTS_AUDIO_DURATION", "5"))
+def load_options():
+    """Load and return HA add-on options, with defaults."""
+    defaults = {
+        "sip_username": "doorbell",
+        "sip_password": "change_me",
+        "sip_display_name": "Doorbell Responder",
+        "sip_domain": "192.168.1.100",
+        "sip_port": 5060,
+        "rtp_port_start": 4000,
+        "tts_message": "Please use the other bell.",
+        "tts_wav_path": "/media/tts/doorbell_message.wav",
+        "tts_audio_duration": 5,
+        "ha_url": "http://homeassistant.local:8123",
+        "ha_token": "",
+        "tts_engine": "tts.piper",
+        "mqtt_host": "core-mosquitto",
+        "mqtt_port": 1883,
+        "mqtt_username": "",
+        "mqtt_password": "",
+    }
+    try:
+        with open(OPTIONS_PATH) as f:
+            opts = json.load(f)
+        # Merge with defaults (HA options take precedence)
+        merged = {**defaults, **opts}
+        # Filter to only known keys
+        return {k: merged.get(k, defaults[k]) for k in defaults}
+    except (FileNotFoundError, json.JSONDecodeError) as e:
+        print(f"WARNING: Cannot read {OPTIONS_PATH}: {e}")
+        print("Falling back to environment variables / defaults.")
+        return defaults
 
-HA_URL = os.getenv("HA_URL", "http://homeassistant.local:8123")
-HA_TOKEN = os.getenv("HA_TOKEN", "")
-TTS_ENGINE = os.getenv("TTS_ENGINE", "tts.piper")
+
+cfg = load_options()
+
+SIP_USERNAME = cfg["sip_username"]
+SIP_PASSWORD = cfg["sip_password"]
+SIP_DISPLAY_NAME = cfg["sip_display_name"]
+SIP_DOMAIN = cfg["sip_domain"]
+SIP_PORT = cfg["sip_port"]
+RTP_PORT_START = cfg["rtp_port_start"]
+
+MQTT_HOST = cfg["mqtt_host"]
+MQTT_PORT = cfg["mqtt_port"]
+MQTT_USERNAME = cfg["mqtt_username"]
+MQTT_PASSWORD = cfg["mqtt_password"]
+
+TTS_MESSAGE = cfg["tts_message"]
+TTS_WAV_PATH = cfg["tts_wav_path"]
+TTS_ULAW_PATH = "/tmp/doorbell_message.ulaw"
+TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
+
+HA_URL = cfg["ha_url"].rstrip("/")
+HA_TOKEN = cfg["ha_token"]
+TTS_ENGINE = cfg["tts_engine"]
 
 # ---------------------------------------------------------------------------
 # MQTT
