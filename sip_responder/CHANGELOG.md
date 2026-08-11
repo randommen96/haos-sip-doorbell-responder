@@ -1,10 +1,14 @@
 # Changelog
 
+## 1.0.42
+
+- Increased pre-playback delay to 100ms (from 50ms) for reliable
+  conference port linking. Fixes occasional cut-off on short messages.
+- Reverted silence pad approach — waiting is cleaner than modifying audio.
+
 ## 1.0.41
 
 - Added timestamps to all log output (HH:MM:SS prefix).
-- Added 100ms pre-playback delay for reliable conference port linking.
-  Fixes cut-off on short messages (<2s).
 - Replaced time.sleep() with libHandleEvents() loop during playback.
 
 ## 1.0.40
