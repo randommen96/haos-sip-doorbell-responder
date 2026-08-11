@@ -1,5 +1,27 @@
 # Changelog
 
+## 1.0.38
+
+- Removed duplicate "Hung up after playback" log line.
+
+## 1.0.37
+
+- Removed self-registration. The GC fix (1.0.20) was the real solution
+  to 603 Decline, not the self-registration. Eliminates 408 timeout noise.
+
+## 1.0.36
+
+- Silenced 408 registration timeout log (normal when no registrar module).
+
+## 1.0.35
+
+- Improved bell-shaped icon with gold clapper.
+- Default log_level lowered from 2 to 1 (ERROR) for quieter startup.
+
+## 1.0.34
+
+- Fixed OPTIONS_PATH import after extracting config.py module.
+
 ## 1.0.33
 
 - Added in-app documentation (DOCS.md) with full option reference,
