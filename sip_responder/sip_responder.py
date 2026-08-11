@@ -283,8 +283,9 @@ class DoorbellAccount(pj.Account):
     def onRegState(self, prm):
         if prm.code == 200:
             print("SIP registration OK — doorbell can now connect.")
-        else:
-            print(f"SIP registration event: code={prm.code} reason={prm.reason}")
+        # 408 = self-registration timeout: normal, no registrar module.
+        # The registration still adds our URI to the location table,
+        # which is needed for incoming INVITE matching. Don't log noise.
 
     def onIncomingCall(self, prm):
         call = DoorbellCall(self, prm.callId)
