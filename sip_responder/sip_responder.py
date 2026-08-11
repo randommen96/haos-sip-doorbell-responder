@@ -322,7 +322,8 @@ class DoorbellCall(pj.Call):
             return
         if not os.path.exists(TTS_ULAW_PATH):
             print(f"ERROR: Audio file missing: {TTS_ULAW_PATH}")
-            self.hangup()
+            hangup_prm = pj.CallOpParam()
+            self.hangup(hangup_prm)
             return
 
         print(f"Playing: {TTS_ULAW_PATH}")
@@ -333,7 +334,8 @@ class DoorbellCall(pj.Call):
             player.startTransmit(call_media)
         except pj.Error as e:
             print(f"PJSIP playback error: {e}")
-            self.hangup()
+            hangup_prm = pj.CallOpParam()
+            self.hangup(hangup_prm)
             return
 
         self.audio_played = True
@@ -360,9 +362,7 @@ def setup_sip_endpoint():
     sip_tp_config.port = SIP_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
-    # Not using setNullDev() — it causes PJSIP to internally hang up
-    # calls right after answering (code=0 -> 603 Decline). Without it,
-    # PJSIP uses a dummy/ALSA device which works in headless containers.
+    ep.audDevManager().setNullDev()
     ep.libStart()
 
     acfg = pj.AccountConfig()
