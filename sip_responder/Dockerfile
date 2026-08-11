@@ -7,11 +7,8 @@ FROM ghcr.io/home-assistant/homeassistant-base:latest
 RUN echo "/usr/lib/python3.14/site-packages" \
         > /usr/local/lib/python3.14/site-packages/apk-packages.pth
 
-# Suppress ALSA/PulseAudio/JACK device scan noise during PJSIP init.
-# The container has no sound hardware; we use setNullDev() in code.
-# ENV vars alone don't silence ALSA -- need a null asound.conf too.
-RUN echo 'pcm.!default { type null }' > /etc/asound.conf && \
-    echo 'ctl.!default { type null }' >> /etc/asound.conf
+# Suppress JACK client connection noise in headless container.
+# ALSA noise is suppressed in Python via snd_lib_error_set_handler().
 ENV PULSE_SERVER=none
 ENV JACK_NO_START_SERVER=1
 

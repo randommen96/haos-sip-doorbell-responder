@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.7
+
+- Eliminated ALSA/PulseAudio/JACK startup noise (0 lines now).
+  Uses ctypes `snd_lib_error_set_handler` with a custom no-op callback.
+- Improved TTS API error diagnostics (shows HTTP status + response body)
+- Removed unnecessary `/etc/asound.conf` from Docker image
+
 ## 1.0.6
 
 - Replaced user-created `ha_token` with auto-injected `SUPERVISOR_TOKEN`

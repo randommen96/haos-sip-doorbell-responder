@@ -11,8 +11,18 @@ _sys.stdout.reconfigure(line_buffering=True)
 
 # Suppress ALSA/PulseAudio/JACK noise before PJSIP initializes PortAudio.
 # The container has no sound hardware -- we use PJSIP's null audio device.
+# snd_lib_error_set_handler(NULL) resets to the DEFAULT handler (prints).
+# We must pass a custom no-op callback to actually silence ALSA output.
+import ctypes as _ct
 import os as _os
-_os.environ.setdefault("ALSA_CARD", "0")
+try:
+    _asound = _ct.cdll.LoadLibrary("libasound.so.2")
+    # Define a no-op error handler: (file, line, function, err, fmt, ...) -> None
+    _NOOP = _ct.CFUNCTYPE(None, _ct.c_char_p, _ct.c_int, _ct.c_char_p,
+                          _ct.c_int, _ct.c_char_p)
+    _asound.snd_lib_error_set_handler(_NOOP(lambda *a: None))
+except Exception:
+    pass
 _os.environ.setdefault("PULSE_SERVER", "none")
 _os.environ.setdefault("JACK_NO_START_SERVER", "1")
 
@@ -139,10 +149,17 @@ def fetch_tts_from_ha(message):
             },
             timeout=15,
         )
-        resp.raise_for_status()
-        tts_url = resp.json().get("url")
+        if resp.status_code != 200:
+            print(f"TTS API error: HTTP {resp.status_code}")
+            try:
+                print(f"  Response: {resp.text[:500]}")
+            except Exception:
+                pass
+            return None
+        data = resp.json()
+        tts_url = data.get("url")
         if not tts_url:
-            print("ERROR: No URL in TTS response")
+            print(f"ERROR: No URL in TTS response. Keys: {list(data.keys())}")
             return None
 
         # The returned URL is a relative path like /api/tts_proxy/...
@@ -152,7 +169,9 @@ def fetch_tts_from_ha(message):
             headers={"Authorization": f"Bearer {SUPERVISOR_TOKEN}"},
             timeout=15,
         )
-        audio_resp.raise_for_status()
+        if audio_resp.status_code != 200:
+            print(f"TTS audio download error: HTTP {audio_resp.status_code}")
+            return None
 
         tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
         tmp.write(audio_resp.content)
