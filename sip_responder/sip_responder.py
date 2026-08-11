@@ -305,7 +305,7 @@ class DoorbellCall(pj.Call):
         self.audio_played = False
 
     def onCallState(self, prm):
-        state = self.info().state
+        state = self.getInfo().state
 
         if state == pj.PJSIP_INV_STATE_CONFIRMED:
             print("Call confirmed. Playing TTS audio...")

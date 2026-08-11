@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.20"
+version: "1.0.21"
 slug: "sip_responder"
 init: false
 homeassistant_api: true
