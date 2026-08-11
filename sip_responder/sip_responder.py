@@ -27,45 +27,8 @@ import shutil
 import tempfile
 import time
 
-# ---------------------------------------------------------------------------
-# Configuration — read from HA options.json (mounted at /data/options.json)
-# ---------------------------------------------------------------------------
-
-OPTIONS_PATH = "/data/options.json"
-
-
-def load_options():
-    """Load and return HA add-on options, with defaults."""
-    defaults = {
-        "sip_username": "doorbell",
-        "sip_password": "change_me",
-        "sip_display_name": "Doorbell Responder",
-        "sip_domain": "192.168.1.100",
-        "sip_port": 5060,
-        "rtp_port_start": 4000,
-        "tts_message": "Please use the other bell.",
-        "tts_wav_path": "/media/tts/doorbell_message.wav",
-        "tts_audio_duration": 5,
-        "tts_engine": "tts.piper",
-        "tts_voice": "",
-        "mqtt_host": "",
-        "mqtt_port": 1883,
-        "sensor_name": "Doorbell Pressed",
-        "mqtt_username": "",
-        "mqtt_password": "",
-    }
-    try:
-        with open(OPTIONS_PATH) as f:
-            opts = json.load(f)
-        # Merge with defaults (HA options take precedence)
-        merged = {**defaults, **opts}
-        # Filter to only known keys
-        return {k: merged.get(k, defaults[k]) for k in defaults}
-    except (FileNotFoundError, json.JSONDecodeError) as e:
-        print(f"WARNING: Cannot read {OPTIONS_PATH}: {e}")
-        print("Falling back to environment variables / defaults.")
-        return defaults
-
+# Configuration loader — separate module for testability (no pjsua2 dep)
+from config import load_options
 
 cfg = load_options()
 
@@ -75,6 +38,7 @@ SIP_DISPLAY_NAME = cfg["sip_display_name"]
 SIP_DOMAIN = cfg["sip_domain"]
 SIP_PORT = cfg["sip_port"]
 RTP_PORT_START = cfg["rtp_port_start"]
+LOG_LEVEL = cfg["log_level"]
 
 MQTT_HOST = cfg["mqtt_host"]
 MQTT_PORT = cfg["mqtt_port"]
@@ -399,6 +363,10 @@ def setup_sip_endpoint():
     # dispatch to Python callbacks. With 0 threads, the main thread
     # handles all SIP events and our onCallState/onIncomingCall fire.
     ep_cfg.uaConfig.threadCnt = 0
+    # Suppress PJSIP detail logs (REGISTER retries, endpoint/module init).
+    # Level 2 = WARNING, suppresses the ~40 lines of INFO per startup.
+    ep_cfg.logConfig.level = LOG_LEVEL
+    ep_cfg.logConfig.consoleLevel = LOG_LEVEL
     ep = pj.Endpoint()
     ep.libCreate()
     ep.libInit(ep_cfg)
@@ -439,6 +407,7 @@ def main():
     print("--- SIP Doorbell Responder ---")
     print(f"Config loaded from {OPTIONS_PATH}")
     print(f"  SIP: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
+    print(f"  PJSIP log level: {LOG_LEVEL} (0=fatal, 5=verbose)")
     mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))

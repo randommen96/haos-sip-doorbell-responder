@@ -18,6 +18,7 @@ RUN apk add --no-cache \
     py3-paho-mqtt \
     py3-requests
 
+COPY config.py /
 COPY sip_responder.py /
 COPY run.sh /
 RUN chmod a+x /run.sh

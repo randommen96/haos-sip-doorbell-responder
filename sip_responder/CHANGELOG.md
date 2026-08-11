@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.32
+
+- Added configurable `log_level` option (0-5, default 2). Reduces PJSIP
+  detail logs at WARNING level. Set to 5 for verbose debugging.
+- Added `icon.png` for add-on store listing.
+- Added CI workflow: verifies changelog entry for current version, runs
+  unit tests for config loading.
+- Added basic unit tests for `load_options()`.
+
 ## 1.0.31
 
 - Fixed `sensor_name` option not being read from HA config (was missing

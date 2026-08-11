@@ -1,0 +1,28 @@
+name: CI
+
+on: [push, pull_request]
+
+jobs:
+  check-changelog:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify changelog has entry for current version
+        run: |
+          VERSION=$(grep 'version:' sip_responder/config.yaml | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          if grep -q "## $VERSION" sip_responder/CHANGELOG.md; then
+            echo "CHANGELOG.md has entry for version $VERSION"
+          else
+            echo "ERROR: CHANGELOG.md is missing entry for version $VERSION"
+            echo "Add '## $VERSION' section to sip_responder/CHANGELOG.md"
+            exit 1
+          fi
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install dependencies
+        run: pip install pytest
+      - name: Run tests
+        run: python3 -m pytest tests/ -v
