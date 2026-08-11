@@ -342,6 +342,10 @@ class DoorbellCall(pj.Call):
 
 def setup_sip_endpoint():
     ep_cfg = pj.EpConfig()
+    # threadCnt=0 is required for Python: pjsua2's worker threads don't
+    # dispatch to Python callbacks. With 0 threads, the main thread
+    # handles all SIP events and our onCallState/onIncomingCall fire.
+    ep_cfg.uaConfig.threadCnt = 0
     ep = pj.Endpoint()
     ep.libCreate()
     ep.libInit(ep_cfg)
@@ -411,10 +415,10 @@ def main():
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 
-    # 4. Event loop
+    # 4. Event loop — with threadCnt=0, we must poll for SIP events
     try:
         while True:
-            time.sleep(1)
+            ep.libHandleEvents(100)  # 100ms timeout, non-blocking poll
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:
