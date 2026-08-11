@@ -124,21 +124,29 @@ HA_API_URL = "http://supervisor/core/api"
 # ---------------------------------------------------------------------------
 
 DOORBELL_STATE_TOPIC = "doorbell/state"
-DISCOVERY_TOPIC = "homeassistant/binary_sensor/doorbell/config"
 
 mqtt_client = mqtt.Client(client_id="sip_doorbell_responder")
 
 
 def publish_mqtt_discovery():
     """Publish MQTT discovery config so HA auto-creates the binary sensor."""
+    uid = "doorbell_responder_pressed"
+    name = cfg.get("sensor_name", "Doorbell Pressed")
     payload = {
-        "name": "Doorbell Pressed",
+        "name": name,
         "device_class": "sound",
         "state_topic": DOORBELL_STATE_TOPIC,
-        "unique_id": "doorbell_responder_pressed",
+        "payload_on": "ON",
+        "payload_off": "OFF",
+        "unique_id": uid,
     }
-    mqtt_client.publish(DISCOVERY_TOPIC, json.dumps(payload), retain=True)
+    # Standard HA discovery topic: <discovery_prefix>/<component>/<node_id>/config
+    topic = f"homeassistant/binary_sensor/{uid}/config"
+    mqtt_client.publish(topic, json.dumps(payload), retain=True)
     print("MQTT discovery published.")
+    print(f"  Topic: {topic}")
+    print(f"  State topic: {DOORBELL_STATE_TOPIC}")
+    print(f"  Look for binary_sensor.doorbell_pressed in HA")
 
 
 def publish_mqtt_doorbell_state(state):
