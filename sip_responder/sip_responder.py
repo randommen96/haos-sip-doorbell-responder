@@ -351,7 +351,6 @@ class DoorbellCall(pj.Call):
         hangup_prm = pj.CallOpParam()
         self.hangup(hangup_prm)
         print("Hung up after playback.")
-        print("Hung up after playback.")
 
 
 # ---------------------------------------------------------------------------
