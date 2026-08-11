@@ -353,7 +353,9 @@ def setup_sip_endpoint():
     sip_tp_config.port = SIP_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
-    ep.audDevManager().setNullDev()
+    # Not using setNullDev() — it causes PJSIP to internally hang up
+    # calls right after answering (code=0 -> 603 Decline). Without it,
+    # PJSIP uses a dummy/ALSA device which works in headless containers.
     ep.libStart()
 
     acfg = pj.AccountConfig()
