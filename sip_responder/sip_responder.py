@@ -354,13 +354,13 @@ class DoorbellCall(pj.Call):
         duration = file_size / 8000
         print(f"  File: {file_size} bytes, ~{duration:.1f}s")
 
-        # Brief delay for doorbell RTP receiver setup. The 200 OK was
-        # just sent; the doorbell's media engine needs ~200ms to start
-        # its decoder. Without this, first frames are lost.
-        deadline = time.time() + 0.2
+        # Brief delay for conference ports to link. The doorbell's RTP
+        # stream is already negotiated in the SDP exchange, so 50ms is
+        # enough for PJSIP to connect the player to the call media.
+        deadline = time.time() + 0.05
         while time.time() < deadline:
             if _endpoint:
-                _endpoint.libHandleEvents(20)
+                _endpoint.libHandleEvents(10)
 
         try:
             player = pj.AudioMediaPlayer()
