@@ -28,7 +28,7 @@ import tempfile
 import time
 
 # Configuration loader — separate module for testability (no pjsua2 dep)
-from config import load_options
+from config import load_options, OPTIONS_PATH  # noqa: E402
 
 cfg = load_options()
 
