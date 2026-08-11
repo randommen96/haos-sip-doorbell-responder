@@ -31,20 +31,39 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 1. Find the doorbell's IP address (check your router's DHCP list, or use the Hikvision SADP tool)
 2. Open a browser to `http://<doorbell-ip>`
 3. Log in (default credentials are on the device label)
-4. Go to **Configuration** -> **Network** -> **Advanced** -> **SIP Settings**
+
+### SIP Settings
+
+4. Go to **Configuration** -> **Network** -> **Basic Settings** -> **SIP**
 5. Configure:
 
 | Setting | Value |
 |---|---|
 | Enable VOIP Gateway | Checked |
-| SIP Server Address | `<Your HA host IP>` |
-| SIP Server Port | `5060` |
-| SIP Number | `doorbell` |
-| SIP Password | (same as `sip_password` in add-on config) |
-| Transport | UDP |
-| Call Duration | `120` |
+| Register User Name | `doorbell` (matches app's `sip_username`) |
+| Registration Password | (same as app's `sip_password`) |
+| Server Address | `<Your HA host IP>` |
+| Server Port | `5060` |
+| Number | `doorbell` |
+| Display User Name | `voordeur` (or whatever you prefer) |
 
-6. Save. Once the add-on is running, the status should show "Registered".
+6. Save.
+
+### Button Call Target
+
+7. Go to **Intercom** -> **Number Settings** -> **Add**
+8. Configure:
+
+| Setting | Value |
+|---|---|
+| Room No. | `1` |
+| SIP Number | `doorbell` (must match app's `sip_username`) |
+
+9. Save.
+10. Go to **Intercom** -> **Press Button to Call**
+11. Select: **Call Specified Indoor Station** -> choose the room you just created (`1`)
+
+The doorbell does not need to show "Registered" — it sends an INVITE directly on button press regardless of registration status.
 
 ## Step 3: Install and Configure This App
 
