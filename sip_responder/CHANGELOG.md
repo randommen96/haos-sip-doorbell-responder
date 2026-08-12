@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.55
+
+- Fix session timer assertion: PJSIP requires `Min-SE >= 90` per RFC 4028.
+  Setting it to 0 caused `Assert failed: setting->min_se >= 90`. Set to 90.
+
 ## 1.0.54
 
 - Switch to host networking: PJSIP now binds to the real LAN IP instead
