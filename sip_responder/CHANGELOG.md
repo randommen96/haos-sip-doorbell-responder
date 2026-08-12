@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.86
+
+- Revert Record-Route header. Asterisk's create_out_of_dialog_request
+  just calls pjsip_endpt_create_request — no Record-Route. Our INVITE
+  from pjsua2 already matches Asterisk's exactly.
+
 ## 1.0.85
 
 - Add Record-Route header to forwarded INVITEs matching Asterisk proxy
