@@ -725,9 +725,12 @@ def _start_registrar_relay(relay_sock):
         else:
             # First REGISTER without auth: challenge.
             _challenged.add(call_id)
+            nonce = _os.urandom(16).hex()
             extra = (
                 f'WWW-Authenticate: Digest realm="sip",'
-                f'nonce="{_time.time():.0f}",algorithm=MD5\r\n'
+                f'nonce="{nonce}",'
+                f'algorithm=MD5,'
+                f'qop="auth"\r\n'
             )
             resp = _build_response(data, 401, "Unauthorized", extra)
             if resp:
