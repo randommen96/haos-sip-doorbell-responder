@@ -37,6 +37,12 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `rtp_port_start` | `4000` | First RTP port (uses this + next for audio) |
 | `sip_display_name` | `"Doorbell Responder"` | Display name in SIP messages |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
+| `mqtt_listen_topic` | `""` | MQTT topic for outbound call triggers (empty = disabled) |
+| `outbound_sip_uri` | `""` | SIP URI to call for outbound triggers, e.g. `sip:192.168.1.50:5060` |
+| `tts_retry_enabled` | `true` | Retry TTS with backoff on failure |
+| `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
+| `tts_retry_initial_delay` | `5` | Seconds before first retry |
+| `tts_retry_max_delay` | `300` | Max seconds between retries |
 
 ### Log Levels
 
@@ -52,6 +58,45 @@ At the default level of 1 (ERROR), PJSIP startup is nearly silent. Only actual e
 | 5 | Trace (every SIP message including REGISTER retries) |
 
 Set `log_level` to 5 only when debugging SIP issues.
+
+## MQTT-Triggered Outbound Calls
+
+The app can make outbound SIP calls to the doorbell (or any SIP endpoint), triggered by MQTT messages. This enables automations to make the doorbell speak arbitrary messages.
+
+### How It Works
+
+1. You publish a message to the configured `mqtt_listen_topic` (e.g., `doorbell/announce`)
+2. The app generates TTS audio from the message payload
+3. The app places an outbound SIP call to `outbound_sip_uri`
+4. The doorbell auto-answers, the TTS message plays, and the call hangs up
+
+### Setup
+
+1. Configure `mqtt_listen_topic` (e.g., `doorbell/announce`) — the topic to subscribe to
+2. Configure `outbound_sip_uri` — the doorbell's SIP address (e.g., `sip:192.168.1.50:5060`)
+3. The doorbell auto-answers by default when it receives a SIP call — no extra configuration needed
+
+### Example Automation
+
+```yaml
+alias: "Announce package delivery"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.package_delivered
+    to: "on"
+action:
+  - service: mqtt.publish
+    data:
+      topic: doorbell/announce
+      payload: "A package has been delivered. Please collect it at the front door."
+```
+
+### Notes
+
+- Outbound calls are skipped if the line is busy (incoming call in progress)
+- TTS is generated on-demand with the same retry/backoff as startup TTS
+- The `outbound_sip_uri` accepts bare IPs (`192.168.1.50`) — `sip:` is auto-prepended
+- Retained MQTT messages are ignored to prevent stale triggers on restart
 
 ## Doorbell Setup
 
@@ -87,7 +132,7 @@ action:
 
 | Symptom | Fix |
 |---|---|
-| TTS not generating | Check Piper add-on is installed and running |
+| TTS not generating | Check Piper add-on is installed and running. The app retries with backoff at startup — wait for "TTS ready" in logs. |
 | Doorbell not connecting | Verify `sip_domain` matches HA host IP. Check UDP 5060 firewall. |
 | No audio on doorbell | Check UDP 4000-4001 firewall. Doorbell codec must be G.711 μ-law. |
 | MQTT sensor not appearing | Reload MQTT integration. Check entity is enabled. |

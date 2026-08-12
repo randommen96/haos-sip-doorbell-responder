@@ -174,6 +174,27 @@ action:
       flash: short
 ```
 
+## MQTT-Triggered Outbound Calls
+
+You can make the doorbell speak arbitrary messages by publishing to an MQTT topic:
+
+1. Configure `mqtt_listen_topic` (e.g., `doorbell/announce`) and `outbound_sip_uri` (doorbell's IP)
+2. Publish a message to the topic — the app generates TTS, calls the doorbell, plays it, hangs up
+
+The doorbell auto-answers incoming SIP calls by default. Use in automations:
+
+```yaml
+action:
+  - service: mqtt.publish
+    data:
+      topic: doorbell/announce
+      payload: "Package delivered, please collect at the front door."
+```
+
+## TTS Retry
+
+If Piper isn't ready when the app starts, TTS generation retries with exponential backoff (5s → 300s cap, configurable). Once it succeeds, the cached audio is available for incoming doorbell presses. Check the log for "TTS ready after N retries."
+
 ## Troubleshooting
 
 | Symptom | Likely Cause |

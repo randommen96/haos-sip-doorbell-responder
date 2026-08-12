@@ -1,5 +1,21 @@
 # Changelog
 
+## 1.0.44
+
+- MQTT-triggered outbound calls: listen on a configurable topic, generate
+  TTS from the payload, call the doorbell, play the message, hang up.
+  Configurable via `mqtt_listen_topic` and `outbound_sip_uri`.
+- TTS retry with exponential backoff at startup (5s -> 300s cap).
+  Covers Piper warm-up, HA API routing delays, and transient failures.
+  Configurable via `tts_retry_enabled`, `tts_retry_max_attempts`,
+  `tts_retry_initial_delay`, and `tts_retry_max_delay`.
+- Refactored audio playback into shared `play_audio_in_call()` for
+  incoming and outbound calls. `OutboundCall` class with same GC fix.
+- Mutual exclusion: incoming calls rejected with 486 Busy during
+  outbound calls. MQTT triggers queued with latest-message-wins.
+- Thread-safe design: MQTT callbacks only enqueue jobs via queue.Queue;
+  all pjsua2 operations stay on the main thread.
+
 ## 1.0.43
 
 - Increased pre-playback delay to 200ms for reliable audio start on all
