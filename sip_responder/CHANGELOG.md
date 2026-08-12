@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.61
+
+- Fix registrar relay: bind UDP socket synchronously in main thread
+  before PJSIP starts, eliminating race where PJSIP could grab the
+  port first. Socket passed to daemon thread after binding.
+
 ## 1.0.60
 
 - Add UDP registrar relay on SIP port: intercepts REGISTER, responds
