@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.85
+
+- Add Record-Route header to forwarded INVITEs matching Asterisk proxy
+  behavior. Doorbell may require proxy-routed appearance for auto-answer.
+
 ## 1.0.84
 
 - Restore relay-based SIP registrar approach. Indoor station XML
