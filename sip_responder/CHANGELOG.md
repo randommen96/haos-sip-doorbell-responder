@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.73
+
+- Send 100 Trying before REGISTER 200 OK: YATE requires provisional
+  response to transition transaction to Process state before accepting
+  the final response. Matches Asterisk's PJSIP transaction behavior.
+
 ## 1.0.72
 
 - Remove debug log truncation to see full REGISTER 200 OK response
