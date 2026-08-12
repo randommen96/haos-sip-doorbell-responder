@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.71
+
+- Strip display name from Contact in REGISTER 200 OK (matches Asterisk behavior)
+- Add debug logging for full 200 OK response content
+- Research: YATE source confirms m_resend = expires * 750ms + now;
+  re-registration at 75% of expire interval means doorbell doesn't accept our 200 OK
+
 ## 1.0.70
 
 - Match Asterisk's REGISTER handling exactly: add opaque param to
