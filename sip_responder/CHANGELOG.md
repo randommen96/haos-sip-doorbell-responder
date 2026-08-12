@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.64
+
+- Relay V2: proper REGISTER 200 OK with Contact header and expires,
+  outbound INVITEs routed through relay for correct source port (5060).
+  Doorbell should now show "Registered" and accept incoming calls.
+
 ## 1.0.63
 
 - Remove registrar relay and outbound proxy: py3-pjsua bindings lack both
