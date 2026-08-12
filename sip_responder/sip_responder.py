@@ -724,15 +724,13 @@ def _start_registrar_relay(relay_sock):
         if has_auth or call_id in _challenged:
             # Second REGISTER (or pre-authenticated): accept.
             _challenged.discard(call_id)
-            # Send 100 Trying first — YATE skips Process state
-            # without a provisional response.
-            trying = _build_response(data, 100, "Trying")
-            if trying:
-                relay_sock.sendto(trying, addr)
             resp = _build_response(data, 200, "OK")
             if resp:
                 print(f"Registrar relay: 200 OK (registered) from {addr}")
-                relay_sock.sendto(resp, addr)
+                # Show raw bytes for debugging YATE parsing
+                raw = resp
+                print(f"  Bytes: {raw.hex()}")
+                relay_sock.sendto(raw, addr)
         else:
             # First REGISTER without auth: challenge.
             # Format matching Asterisk's pjsip_auth_srv_challenge().
