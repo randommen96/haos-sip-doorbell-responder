@@ -11,7 +11,7 @@ OPTIONS_PATH = "/data/options.json"
 def load_options():
     """Load and return HA add-on options, with defaults."""
     defaults = {
-        "sip_username": "doorbell",
+        "sip_username": "responder",
         "sip_password": "change_me",
         "sip_display_name": "Doorbell Responder",
         "sip_domain": "192.168.1.100",

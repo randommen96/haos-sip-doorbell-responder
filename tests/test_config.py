@@ -12,7 +12,7 @@ from config import normalize_sip_uri, retry_with_backoff  # noqa: E402
 def test_defaults():
     """When no options.json exists, defaults are returned."""
     opts = config.load_options()
-    assert opts["sip_username"] == "doorbell"
+    assert opts["sip_username"] == "responder"
     assert opts["sip_password"] == "change_me"
     assert opts["sip_domain"] == "192.168.1.100"
     assert opts["sip_port"] == 5060

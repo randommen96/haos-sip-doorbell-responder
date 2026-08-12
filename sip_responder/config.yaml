@@ -25,7 +25,7 @@ ports:
 host_network: true
 
 options:
-  sip_username: "doorbell"
+  sip_username: "responder"
   sip_password: "change_me"
   sip_display_name: "Doorbell Responder"
   sip_domain: "192.168.1.100"
