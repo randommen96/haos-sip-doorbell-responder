@@ -5,6 +5,12 @@
 - Fix NameError: `mqtt_client.on_message` referenced `_on_mqtt_message` before
   it was defined, crashing the app at import. Moved assignment after definition.
 
+## 1.0.46
+
+- Fix UnboundLocalError in `process_outbound_requests`: `_outbound_active`
+  and `_outbound_call_id` were assigned without `global` declaration,
+  causing Python to treat them as unbound locals on first read.
+
 ## 1.0.44
 
 - MQTT-triggered outbound calls: listen on a configurable topic, generate
