@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.49
+
+- Fix stale defaults in DOCS.md and README.md: `mqtt_listen_topic` and
+  `outbound_sip_uri` descriptions now match actual code defaults and
+  auto-discovery behavior.
+
 ## 1.0.48
 
 - Default `mqtt_listen_topic` to `"doorbell/announce"` instead of empty.
