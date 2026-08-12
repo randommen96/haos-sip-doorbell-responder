@@ -1,9 +1,15 @@
 # Changelog
 
+## 1.0.53
+
+- Set `publicAddr` on both SIP and media transport configs to `sip_domain`
+  so outbound INVITEs advertise the HA host's LAN IP everywhere (Via,
+  Contact, SDP) instead of the unreachable Docker bridge IP.
+
 ## 1.0.52
 
-- Set `publicAddr` to `sip_domain` so outbound INVITEs advertise the HA
-  host's LAN IP in SDP and Contact headers, not the Docker bridge IP.
+- Set `publicAddr` to `sip_domain` on media transport config so outbound
+  INVITEs advertise the HA host's LAN IP in SDP and Contact headers.
 
 ## 1.0.51
 
