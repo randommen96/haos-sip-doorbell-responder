@@ -11,6 +11,12 @@
   and `_outbound_call_id` were assigned without `global` declaration,
   causing Python to treat them as unbound locals on first read.
 
+## 1.0.47
+
+- Refactor outbound call state: replace 5 separate `global` variables with
+  a single `_outbound` dict. No `global` declarations needed — cleaner and
+  eliminates the class of scoping bugs fixed in 1.0.45/1.0.46.
+
 ## 1.0.44
 
 - MQTT-triggered outbound calls: listen on a configurable topic, generate
