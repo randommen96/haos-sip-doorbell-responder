@@ -674,11 +674,16 @@ def _start_indoor_station_register():
     def _send(msg, expect_response=False):
         sock.sendto(msg.encode(), (DOORBELL_IP, 5065))
         if expect_response:
-            try:
-                data, _ = sock.recvfrom(65535)
-                return data.decode("utf-8", errors="replace")
-            except _socket.timeout:
-                return None
+            # Skip 100 Trying; wait for final response (401/200/etc.)
+            for _ in range(5):
+                try:
+                    data, _ = sock.recvfrom(65535)
+                    resp = data.decode("utf-8", errors="replace")
+                    if "100" not in resp.split("\r\n")[0]:
+                        return resp
+                except _socket.timeout:
+                    return None
+            return None
         return None
 
     def _build_register(extra_headers=""):
