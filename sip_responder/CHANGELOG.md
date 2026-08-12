@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.50
+
+- Fix auto-discovery: use `remoteContact` (Contact header) instead of
+  `remoteUri` (From header). The From header carries the doorbell's SIP
+  identity with our domain — useless for calling back. The Contact header
+  has the doorbell's actual reachable IP.
+
 ## 1.0.49
 
 - Fix stale defaults in DOCS.md and README.md: `mqtt_listen_topic` and
