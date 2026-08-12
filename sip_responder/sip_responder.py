@@ -681,10 +681,11 @@ def _start_registrar_relay(relay_sock):
                 expires = line.split(":", 1)[1].strip()
         if not all([via, from_h, to_h, call_id, cseq]):
             return None
-        # Don't add a tag to the To header — some devices (KB8113/YATE)
-        # reject REGISTER 200 OK responses with unexpected tags.
-        if "tag=" in to_h:
-            to_h = to_h.rstrip() + "\r\n"
+        # Asterisk sets To tag = Via branch param for all responses > 100.
+        # Our old tag "registrar" was rejected; the branch value is accepted.
+        if "tag=" not in to_h and via:
+            branch = via.split("branch=")[-1].split(";")[0].strip()
+            to_h = to_h.rstrip() + f";tag={branch}\r\n"
         cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
         resp = (
             f"SIP/2.0 {code} {phrase}\r\n"
@@ -724,11 +725,14 @@ def _start_registrar_relay(relay_sock):
                 relay_sock.sendto(resp, addr)
         else:
             # First REGISTER without auth: challenge.
+            # Format matching Asterisk's pjsip_auth_srv_challenge().
             _challenged.add(call_id)
-            nonce = _os.urandom(16).hex()
+            nonce = f"{_time.time():.0f}/{_os.urandom(8).hex()}"
+            opaque = _os.urandom(8).hex()
             extra = (
                 f'WWW-Authenticate: Digest realm="sip",'
                 f'nonce="{nonce}",'
+                f'opaque="{opaque}",'
                 f'algorithm=MD5,'
                 f'qop="auth"\r\n'
             )
