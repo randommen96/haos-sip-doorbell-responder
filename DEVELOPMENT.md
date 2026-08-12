@@ -44,7 +44,7 @@ python3 -m pytest tests/ -v
 
 1. Make changes
 2. Bump `version` in `sip_responder/config.yaml`
-3. Add entry to `sip_responder/CHANGELOG.md` under `## <version>`
+3. Add entry to `sip_responder/CHANGELOG.md` under `## <version>` — keep descending (newest first)
 4. Commit and push to `main`
 5. In HA: Add-on Store → Check for updates → Update
 
