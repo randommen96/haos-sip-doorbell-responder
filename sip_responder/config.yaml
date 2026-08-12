@@ -21,10 +21,6 @@ ports:
   4001/udp: 4001
   4002/udp: 4002
   4003/udp: 4003
-  4004/udp: 4004
-  4005/udp: 4005
-  4006/udp: 4006
-  4007/udp: 4007
 
 host_network: false
 
