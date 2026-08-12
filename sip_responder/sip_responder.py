@@ -46,7 +46,7 @@ import shutil
 import tempfile
 import queue
 import threading
-import ctypes
+import socket as _socket
 
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
@@ -635,47 +635,88 @@ def process_outbound_requests():
 # SIP endpoint setup
 # ---------------------------------------------------------------------------
 
-_REGISTRAR_SETUP_DONE = False
+# SIP_REGISTRAR_PORT — PJSIP runs on this port, the relay on SIP_PORT.
+_SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
 
 
-def _setup_registrar():
-    """Load the PJSIP registrar module via ctypes so incoming REGISTER
-    requests from the doorbell get a 200 OK response.  py3-pjsua's SWIG
-    bindings don't expose this, but the C library is installed."""
-    global _REGISTRAR_SETUP_DONE
-    if _REGISTRAR_SETUP_DONE:
-        return
+def _start_registrar_relay():
+    """Minimal UDP relay on SIP_PORT that intercepts REGISTER and responds
+    200 OK, forwarding everything else to PJSIP on _SIP_REGISTRAR_PORT.
+    Runs in a daemon thread.
+
+    The KB8113 requires a successful REGISTER before it will auto-answer
+    incoming calls.  PJSIP's registrar module is not compiled in Alpine's
+    py3-pjsua package, so we handle REGISTER ourselves with a simple socket.
+    """
     try:
-        pjsua_lib = ctypes.CDLL("libpjsua.so.2")
-        pjsua_lib.pjsua_get_pjsip_endpoint.restype = ctypes.c_void_p
-        endpt = pjsua_lib.pjsua_get_pjsip_endpoint()
-
-        # pjsip_registrar_create may be in libpjsua or libpjsip-simple
-        # depending on how Alpine compiled PJSIP.
-        registrar_create = None
-        for soname in ("libpjsua.so.2", "libpjsip-simple.so.2"):
-            try:
-                lib = ctypes.CDLL(soname)
-                registrar_create = lib.pjsip_registrar_create
-                registrar_create.argtypes = [
-                    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
-                ]
-                registrar_create.restype = ctypes.c_int
-                break
-            except AttributeError:
-                continue
-
-        if registrar_create is None:
-            raise RuntimeError(
-                "pjsip_registrar_create not found (not compiled into Alpine PJSIP)"
-            )
-
-        registrar_create(endpt, None, None)
-        _REGISTRAR_SETUP_DONE = True
-        print("Registrar module loaded — doorbell REGISTER will get 200 OK.")
+        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+        sock.bind((SIP_DOMAIN, SIP_PORT))
+        sock.settimeout(1.0)
+        print(f"Registrar relay listening on {SIP_DOMAIN}:{SIP_PORT}")
     except Exception as e:
-        print(f"WARNING: Registrar not available: {e}")
-        print("  Doorbell REGISTER will continue to be dropped.")
+        print(f"WARNING: Could not start registrar relay: {e}")
+        return
+
+    def _respond_register(data, addr):
+        """Parse a REGISTER request and send 200 OK."""
+        lines = data.decode("utf-8", errors="replace").split("\r\n")
+        via = from_h = to_h = call_id = cseq = ""
+        for line in lines:
+            if line.lower().startswith("via:"):
+                via = line
+            elif line.lower().startswith("from:"):
+                from_h = line
+            elif line.lower().startswith("to:"):
+                to_h = line
+            elif line.lower().startswith("call-id:"):
+                call_id = line
+            elif line.lower().startswith("cseq:"):
+                cseq = line
+        if not all([via, from_h, to_h, call_id, cseq]):
+            return  # incomplete request, skip
+        # Add tag to To header if not present
+        if "tag=" not in to_h:
+            to_h = to_h.rstrip() + ";tag=registrar-relay\r\n"
+        cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
+        response = (
+            "SIP/2.0 200 OK\r\n"
+            f"{via}\r\n"
+            f"{from_h}\r\n"
+            f"{to_h}"
+            f"{call_id}\r\n"
+            f"CSeq: {cseq_num} REGISTER\r\n"
+            "Expires: 3600\r\n"
+            "Content-Length: 0\r\n\r\n"
+        )
+        sock.sendto(response.encode(), addr)
+
+    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
+    print(f"Registrar relay active — REGISTER handled, other SIP forwarded"
+          f" to {pjsip_addr}")
+    while True:
+        try:
+            data, addr = sock.recvfrom(65535)
+        except _socket.timeout:
+            continue
+        except OSError:
+            break
+        if not data:
+            continue
+        first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
+        if first_line.startswith("REGISTER"):
+            _respond_register(data, addr)
+        else:
+            # Forward non-REGISTER traffic to PJSIP
+            try:
+                sock.sendto(data, pjsip_addr)
+                # Wait for PJSIP's response and forward back to client.
+                # PJSIP sends response to us because we were the source
+                # of the forwarded request.
+                resp, _ = sock.recvfrom(65535)
+                sock.sendto(resp, addr)
+            except _socket.timeout:
+                pass  # no response, probably handled directly by PJSIP
 
 
 def setup_sip_endpoint():
@@ -692,8 +733,10 @@ def setup_sip_endpoint():
     ep.libCreate()
     ep.libInit(ep_cfg)
 
+    # PJSIP runs on _SIP_REGISTRAR_PORT (SIP_PORT + 1) — the registrar
+    # relay on SIP_PORT handles REGISTER and forwards call traffic.
     sip_tp_config = pj.TransportConfig()
-    sip_tp_config.port = SIP_PORT
+    sip_tp_config.port = _SIP_REGISTRAR_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
@@ -720,10 +763,6 @@ def setup_sip_endpoint():
     acc = DoorbellAccount()
     acc.create(acfg)
     print(f"SIP account created: {acfg.idUri}")
-
-    # Enable the PJSIP registrar module via ctypes — not exposed in
-    # py3-pjsua's SWIG bindings, but libpjsip-simple is installed.
-    _setup_registrar()
 
     global _endpoint, _account
     _endpoint = ep
@@ -787,14 +826,18 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Start SIP endpoint
+    # 3. Start registrar relay on SIP_PORT first — must bind before PJSIP.
+    #    Handles REGISTER locally, forwards call traffic to PJSIP.
+    threading.Thread(target=_start_registrar_relay, daemon=True).start()
+
+    # 4. Start SIP endpoint on the relay-forwarding port.
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 
-    # 4. Event loop — with threadCnt=0, we must poll for SIP events.
+    # 5. Event loop — with threadCnt=0, we must poll for SIP events.
     #    Outbound requests are drained here (main thread) because pjsua2
     #    is not thread-safe: MQTT callbacks only enqueue jobs.
     try:
