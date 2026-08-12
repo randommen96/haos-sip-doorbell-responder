@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.52
+
+- Set `publicAddr` to `sip_domain` so outbound INVITEs advertise the HA
+  host's LAN IP in SDP and Contact headers, not the Docker bridge IP.
+
 ## 1.0.51
 
 - Fix RTP port exhaustion on outbound calls: `portRange` increased from
