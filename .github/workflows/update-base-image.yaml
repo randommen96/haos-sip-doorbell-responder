@@ -1,0 +1,80 @@
+name: Update Base Image
+
+on:
+  schedule:
+    # Every Monday at 03:00 UTC
+    - cron: "0 3 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-base-image:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check for newer base image
+        run: |
+          set -euo pipefail
+
+          DOCKERFILE="sip_responder/Dockerfile"
+          CONFIG_YAML="sip_responder/config.yaml"
+          CHANGELOG="sip_responder/CHANGELOG.md"
+
+          # 1. Extract currently pinned tag from Dockerfile
+          CURRENT=$(grep -oP 'homeassistant-base:\K[^ ]+' "$DOCKERFILE")
+          echo "Current pinned tag: $CURRENT"
+
+          # 2. Get latest upstream tag from GHCR
+          echo "Querying GHCR for available tags..."
+          TOKEN=$(curl -sS "https://ghcr.io/token?scope=repository:home-assistant/homeassistant-base:pull" \
+            | python3 -c "import sys,json; print(json.load(sys.stdin)['token'])")
+          TAGS=$(curl -sS -H "Authorization: Bearer $TOKEN" \
+            "https://ghcr.io/v2/home-assistant/homeassistant-base/tags/list" \
+            | python3 -c "import sys,json; print('\n'.join(json.load(sys.stdin)['tags']))")
+          LATEST=$(echo "$TAGS" | grep -oP '^\d{4}\.\d{2}\.0$' | sort -V | tail -1)
+          echo "Latest upstream tag: $LATEST"
+
+          # 3. Compare — exit if already up to date
+          if [ "$LATEST" = "$CURRENT" ]; then
+            echo "Already on latest tag ($LATEST). Nothing to do."
+            exit 0
+          fi
+
+          # Verify LATEST is actually newer (not an older tag)
+          if [ "$(printf '%s\n' "$CURRENT" "$LATEST" | sort -V | tail -1)" != "$LATEST" ]; then
+            echo "Pinned tag ($CURRENT) is already newer than latest upstream ($LATEST). Nothing to do."
+            exit 0
+          fi
+
+          echo "Newer tag available: $CURRENT -> $LATEST"
+
+          # 4. Update Dockerfile
+          sed -i "s/homeassistant-base:${CURRENT}/homeassistant-base:${LATEST}/" "$DOCKERFILE"
+          echo "Updated $DOCKERFILE"
+
+          # 5. Bump patch version in config.yaml
+          OLD_VERSION=$(grep '^version:' "$CONFIG_YAML" | head -1 | sed 's/.*"\(.*\)".*/\1/')
+          MAJOR=$(echo "$OLD_VERSION" | cut -d. -f1)
+          MINOR=$(echo "$OLD_VERSION" | cut -d. -f2)
+          PATCH=$(echo "$OLD_VERSION" | cut -d. -f3)
+          NEW_VERSION="${MAJOR}.${MINOR}.$((PATCH + 1))"
+          sed -i "s/version: \"${OLD_VERSION}\"/version: \"${NEW_VERSION}\"/" "$CONFIG_YAML"
+          echo "Bumped version: $OLD_VERSION -> $NEW_VERSION"
+
+          # 6. Prepend changelog entry
+          CHANGELOG_ENTRY="## ${NEW_VERSION}\n\n- Update base image to homeassistant-base:${LATEST}\n"
+          sed -i "s/^# Changelog/# Changelog\n\n${CHANGELOG_ENTRY}/" "$CHANGELOG"
+          echo "Updated $CHANGELOG"
+
+          # 7. Commit and push
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add "$DOCKERFILE" "$CONFIG_YAML" "$CHANGELOG"
+          git commit -m "Update base image to homeassistant-base:${LATEST}
+
+          Bump version to ${NEW_VERSION}"
+          git push
+          echo "Committed and pushed: base image $CURRENT -> $LATEST, version $OLD_VERSION -> $NEW_VERSION"

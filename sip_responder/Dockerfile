@@ -1,4 +1,4 @@
-FROM ghcr.io/home-assistant/homeassistant-base:latest
+FROM ghcr.io/home-assistant/homeassistant-base:2026.07.0
 
 # apk installs Python packages to /usr/lib, but this image's Python
 # looks in /usr/local/lib. A .pth file reliably adds the path at
