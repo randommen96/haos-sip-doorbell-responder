@@ -46,6 +46,7 @@ import shutil
 import tempfile
 import queue
 import threading
+import ctypes
 
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
@@ -634,6 +635,34 @@ def process_outbound_requests():
 # SIP endpoint setup
 # ---------------------------------------------------------------------------
 
+_REGISTRAR_SETUP_DONE = False
+
+
+def _setup_registrar():
+    """Load the PJSIP registrar module via ctypes so incoming REGISTER
+    requests from the doorbell get a 200 OK response.  py3-pjsua's SWIG
+    bindings don't expose this, but the C library is installed."""
+    global _REGISTRAR_SETUP_DONE
+    if _REGISTRAR_SETUP_DONE:
+        return
+    try:
+        lib = ctypes.CDLL("libpjsip-simple.so.2")
+        lib.pjsip_registrar_create.argtypes = [
+            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+        ]
+        lib.pjsip_registrar_create.restype = ctypes.c_int
+        # pjsua_get_pjsip_endpoint() is in libpjsua (C library), not libpjsua2
+        pjsua_lib = ctypes.CDLL("libpjsua.so.2")
+        pjsua_lib.pjsua_get_pjsip_endpoint.restype = ctypes.c_void_p
+        endpt = pjsua_lib.pjsua_get_pjsip_endpoint()
+        lib.pjsip_registrar_create(endpt, None, None)
+        _REGISTRAR_SETUP_DONE = True
+        print("Registrar module loaded — doorbell REGISTER will get 200 OK.")
+    except Exception as e:
+        print(f"WARNING: Could not load registrar module: {e}")
+        print("  Doorbell REGISTER will continue to be dropped.")
+
+
 def setup_sip_endpoint():
     ep_cfg = pj.EpConfig()
     # threadCnt=0 is required for Python: pjsua2's worker threads don't
@@ -676,6 +705,11 @@ def setup_sip_endpoint():
     acc = DoorbellAccount()
     acc.create(acfg)
     print(f"SIP account created: {acfg.idUri}")
+
+    # Enable the PJSIP registrar module via ctypes — not exposed in
+    # py3-pjsua's SWIG bindings, but libpjsip-simple is installed.
+    _setup_registrar()
+
     global _endpoint, _account
     _endpoint = ep
     _account = acc
