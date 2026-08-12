@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.45
+
+- Fix NameError: `mqtt_client.on_message` referenced `_on_mqtt_message` before
+  it was defined, crashing the app at import. Moved assignment after definition.
+
 ## 1.0.44
 
 - MQTT-triggered outbound calls: listen on a configurable topic, generate
