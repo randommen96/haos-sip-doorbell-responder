@@ -649,8 +649,6 @@ def setup_sip_endpoint():
 
     sip_tp_config = pj.TransportConfig()
     sip_tp_config.port = SIP_PORT
-    # Advertise the HA host's LAN IP instead of Docker bridge IP.
-    sip_tp_config.publicAddr = SIP_DOMAIN
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
@@ -665,10 +663,6 @@ def setup_sip_endpoint():
     # reserved), one pair for the active call (inbound or outbound —
     # mutual exclusion guarantees only one at a time).
     acfg.mediaConfig.transportConfig.portRange = 2
-    # Advertise the HA host's LAN IP in SDP and Contact headers, not
-    # the Docker-internal bridge IP. Without this, the doorbell sees
-    # 172.30.x.x addresses it can't route to.
-    acfg.mediaConfig.transportConfig.publicAddr = SIP_DOMAIN
     # Session timers cause 32-second drops on KB8113 — its re-INVITE
     # handling is broken (known YATE stack bug). Disable entirely.
     acfg.callConfig.timerMinSESec = 0

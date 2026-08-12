@@ -22,7 +22,7 @@ ports:
   4002/udp: 4002
   4003/udp: 4003
 
-host_network: false
+host_network: true
 
 options:
   sip_username: "doorbell"
