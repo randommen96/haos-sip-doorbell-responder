@@ -639,43 +639,34 @@ def process_outbound_requests():
 _SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
 
 
-def _start_registrar_relay():
-    """Minimal UDP relay on SIP_PORT that intercepts REGISTER and responds
-    200 OK, forwarding everything else to PJSIP on _SIP_REGISTRAR_PORT.
-    Runs in a daemon thread.
+def _start_registrar_relay(relay_sock):
+    """Run the registrar relay loop in a daemon thread.
 
     The KB8113 requires a successful REGISTER before it will auto-answer
     incoming calls.  PJSIP's registrar module is not compiled in Alpine's
     py3-pjsua package, so we handle REGISTER ourselves with a simple socket.
+    The socket must be bound in the main thread before PJSIP starts.
     """
-    try:
-        sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-        sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-        sock.bind((SIP_DOMAIN, SIP_PORT))
-        sock.settimeout(1.0)
-        print(f"Registrar relay listening on {SIP_DOMAIN}:{SIP_PORT}")
-    except Exception as e:
-        print(f"WARNING: Could not start registrar relay: {e}")
-        return
+    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
 
     def _respond_register(data, addr):
         """Parse a REGISTER request and send 200 OK."""
         lines = data.decode("utf-8", errors="replace").split("\r\n")
         via = from_h = to_h = call_id = cseq = ""
         for line in lines:
-            if line.lower().startswith("via:"):
+            low = line.lower()
+            if low.startswith("via:"):
                 via = line
-            elif line.lower().startswith("from:"):
+            elif low.startswith("from:"):
                 from_h = line
-            elif line.lower().startswith("to:"):
+            elif low.startswith("to:"):
                 to_h = line
-            elif line.lower().startswith("call-id:"):
+            elif low.startswith("call-id:"):
                 call_id = line
-            elif line.lower().startswith("cseq:"):
+            elif low.startswith("cseq:"):
                 cseq = line
         if not all([via, from_h, to_h, call_id, cseq]):
-            return  # incomplete request, skip
-        # Add tag to To header if not present
+            return
         if "tag=" not in to_h:
             to_h = to_h.rstrip() + ";tag=registrar-relay\r\n"
         cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
@@ -689,14 +680,13 @@ def _start_registrar_relay():
             "Expires: 3600\r\n"
             "Content-Length: 0\r\n\r\n"
         )
-        sock.sendto(response.encode(), addr)
+        relay_sock.sendto(response.encode(), addr)
 
-    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
     print(f"Registrar relay active — REGISTER handled, other SIP forwarded"
           f" to {pjsip_addr}")
     while True:
         try:
-            data, addr = sock.recvfrom(65535)
+            data, addr = relay_sock.recvfrom(65535)
         except _socket.timeout:
             continue
         except OSError:
@@ -705,18 +695,15 @@ def _start_registrar_relay():
             continue
         first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
         if first_line.startswith("REGISTER"):
+            print(f"Registrar relay: responding 200 OK to REGISTER from {addr}")
             _respond_register(data, addr)
         else:
-            # Forward non-REGISTER traffic to PJSIP
             try:
-                sock.sendto(data, pjsip_addr)
-                # Wait for PJSIP's response and forward back to client.
-                # PJSIP sends response to us because we were the source
-                # of the forwarded request.
-                resp, _ = sock.recvfrom(65535)
-                sock.sendto(resp, addr)
+                relay_sock.sendto(data, pjsip_addr)
+                resp, _ = relay_sock.recvfrom(65535)
+                relay_sock.sendto(resp, addr)
             except _socket.timeout:
-                pass  # no response, probably handled directly by PJSIP
+                pass
 
 
 def setup_sip_endpoint():
@@ -826,9 +813,15 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Start registrar relay on SIP_PORT first — must bind before PJSIP.
-    #    Handles REGISTER locally, forwards call traffic to PJSIP.
-    threading.Thread(target=_start_registrar_relay, daemon=True).start()
+    # 3. Start registrar relay on SIP_PORT — must bind BEFORE PJSIP starts.
+    #    Bind synchronously, then hand the socket to a daemon thread.
+    relay_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    relay_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    relay_sock.bind((SIP_DOMAIN, SIP_PORT))
+    relay_sock.settimeout(1.0)
+    print(f"Registrar relay bound to {SIP_DOMAIN}:{SIP_PORT}")
+    threading.Thread(target=_start_registrar_relay, args=(relay_sock,),
+                     daemon=True).start()
 
     # 4. Start SIP endpoint on the relay-forwarding port.
     ep, acc = setup_sip_endpoint()
