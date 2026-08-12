@@ -715,7 +715,8 @@ def _start_registrar_relay(relay_sock):
             _respond_register(data, addr)
         elif addr == pjsip_addr:
             # Outbound: PJSIP -> relay -> doorbell.
-            # Rewrite 127.0.0.1:5060 to the doorbell's real address.
+            # Rewrite 127.0.0.1 to the doorbell's real address in
+            # Request-URI, Contact, and Via (sent-by).
             global _doorbell_addr
             target = _doorbell_addr or (
                 normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
@@ -726,6 +727,9 @@ def _start_registrar_relay(relay_sock):
                 port = target.split(":")[-1] if ":" in target.split("@")[-1] else "5060"
                 fwd = data.replace(b"@127.0.0.1:5060",
                                    f"@{host}:{port}".encode())
+                fwd = fwd.replace(b"@127.0.0.1:5061",
+                                  f"@{SIP_DOMAIN}:5060".encode())
+                print(f"Registrar relay: forwarding outbound to {host}:{port}")
                 relay_sock.sendto(fwd, (host, int(port)))
                 try:
                     resp, _ = relay_sock.recvfrom(65535)
