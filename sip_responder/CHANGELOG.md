@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.67
+
+- Fix relay: route outbound through SIP_DOMAIN (not 127.0.0.1) so relay
+  actually receives INVITEs on the bound interface.
+- Don't add tag to To header in REGISTER 200 OK.
+
 ## 1.0.66
 
 - Fix relay forwarding: match on port (5061) not address — PJSIP sends
