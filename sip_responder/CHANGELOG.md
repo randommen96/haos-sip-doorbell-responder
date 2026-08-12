@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.54
+
+- Switch to host networking: PJSIP now binds to the real LAN IP instead
+  of Docker bridge. Fixes outbound INVITEs advertising unreachable
+  172.30.x.x addresses in Via, Contact, and SDP.
+- Disable SIP session timers: the KB8113's YATE stack has broken
+  re-INVITE handling (known 32-second drop issue).
+- Removed `publicAddr` workarounds — not mapped in py3-pjsua SWIG bindings.
+
 ## 1.0.53
 
 - Set `publicAddr` on both SIP and media transport configs to `sip_domain`
