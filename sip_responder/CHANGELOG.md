@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.69
+
+- Fix WWW-Authenticate: add qop="auth" and proper random nonce matching
+  Asterisk's format. Missing qop likely caused doorbell to ignore 401.
+
 ## 1.0.68
 
 - Fix INVITE loop: outbound relay forwarding no longer waits for and
