@@ -115,7 +115,7 @@ TTS_RETRY_ENABLED = cfg.get("tts_retry_enabled", True)
 TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
 TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
 TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
-OUTBOUND_CALL_TIMEOUT = 30  # seconds without answer before we CANCEL
+OUTBOUND_CALL_TIMEOUT = 15  # seconds without answer before we CANCEL
 
 # Supervisor-injected token — automatically available to all add-ons.
 # Used to call HA Core API via the internal proxy at http://supervisor/core/api/
@@ -742,7 +742,7 @@ def _start_registrar_relay(relay_sock):
         first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
         if first_line.startswith("REGISTER"):
             _handle_register(data, addr)
-        elif addr == pjsip_addr:
+        elif addr[1] == _SIP_REGISTRAR_PORT:  # from PJSIP on port 5061
             # Outbound: PJSIP -> relay -> doorbell.
             # Rewrite 127.0.0.1 to the doorbell's real address in
             # Request-URI, Contact, and Via (sent-by).
