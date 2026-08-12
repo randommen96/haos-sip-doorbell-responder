@@ -16,13 +16,14 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | Option | Description |
 |---|---|
 | `sip_domain` | Your HA host IP address (e.g., `10.26.5.254`). The doorbell connects to this. |
-| `sip_username` | SIP username. Must match the doorbell's Register User Name. |
 | `sip_password` | SIP password. Must match the doorbell's Registration Password. |
 
 ### Optional
 
 | Option | Default | Description |
 |---|---|---|
+| `sip_username` | `"responder"` | Our SIP identity — the doorbell calls this. |
+| `doorbell_number` | `"doorbell"` | Doorbell's SIP identity — we call this for outbound triggers. |
 | `tts_message` | `"Please use the other bell."` | Text spoken by the doorbell |
 | `tts_voice` | `""` | Piper voice name (e.g., `en_US-lessac-medium`). Empty = Piper default. |
 | `tts_engine` | `tts.piper` | TTS entity to use |
@@ -38,7 +39,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `sip_display_name` | `"Doorbell Responder"` | Display name in SIP messages |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
 | `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound call triggers (empty = disabled) |
-| `outbound_sip_uri` | `""` | SIP URI to call. Auto-discovered from first ring if empty. |
+| `outbound_sip_uri` | `""` | Full SIP URI override (e.g. `sip:doorbell@10.26.5.13:5060`). Auto-discovered from first ring if empty. |
 | `tts_retry_enabled` | `true` | Retry TTS with backoff on failure |
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
 | `tts_retry_initial_delay` | `5` | Seconds before first retry |

@@ -43,6 +43,7 @@ options:
   mqtt_username: ""
   mqtt_password: ""
   mqtt_listen_topic: "doorbell/announce"
+  doorbell_number: "doorbell"
   outbound_sip_uri: ""
   tts_retry_enabled: true
   tts_retry_max_attempts: 0
@@ -68,6 +69,7 @@ schema:
   mqtt_username: str
   mqtt_password: password
   mqtt_listen_topic: str
+  doorbell_number: str
   outbound_sip_uri: str
   tts_retry_enabled: bool
   tts_retry_max_attempts: int

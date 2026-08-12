@@ -107,6 +107,7 @@ TTS_VOICE = cfg.get("tts_voice", "")
 
 # MQTT trigger — outbound call feature
 MQTT_LISTEN_TOPIC = cfg.get("mqtt_listen_topic", "")
+DOORBELL_NUMBER = cfg.get("doorbell_number", "doorbell")
 OUTBOUND_SIP_URI = cfg.get("outbound_sip_uri", "")
 
 # TTS retry — exponential backoff for startup and on-demand generation
@@ -693,6 +694,7 @@ def main():
     mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
+    print(f"  Identities: we are '{SIP_USERNAME}', doorbell is '{DOORBELL_NUMBER}'")
     if MQTT_LISTEN_TOPIC:
         uri_txt = OUTBOUND_SIP_URI or "(auto-discover on first ring)"
         print(f"  Outbound calls: topic '{MQTT_LISTEN_TOPIC}' -> {uri_txt}")
