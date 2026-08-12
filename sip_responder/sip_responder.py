@@ -660,7 +660,7 @@ def _start_registrar_relay(relay_sock):
     import time as _time
     pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
 
-    def _respond_register(data, addr):
+    def _build_response(data, code, phrase, extra=""):
         lines = data.decode("utf-8", errors="replace").split("\r\n")
         via = from_h = to_h = call_id = cseq = contact = ""
         for line in lines:
@@ -678,25 +678,55 @@ def _start_registrar_relay(relay_sock):
             elif low.startswith("contact:"):
                 contact = line.strip()
         if not all([via, from_h, to_h, call_id, cseq]):
-            return
+            return None
         if "tag=" not in to_h:
             to_h = to_h.rstrip() + ";tag=registrar\r\n"
         cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
         resp = (
-            f"SIP/2.0 200 OK\r\n"
+            f"SIP/2.0 {code} {phrase}\r\n"
             f"{via}\r\n"
             f"{from_h}\r\n"
             f"{to_h}"
             f"{call_id}\r\n"
             f"CSeq: {cseq_num} REGISTER\r\n"
         )
-        if contact:
+        if code == 200 and contact:
             resp += f"{contact};expires=3600\r\n"
+        resp += extra
         resp += (
             f"Date: {_time.strftime('%a, %d %b %Y %H:%M:%S GMT', _time.gmtime())}\r\n"
             f"Content-Length: 0\r\n\r\n"
         )
-        relay_sock.sendto(resp.encode(), addr)
+        return resp.encode()
+
+    # Track which Call-IDs we've challenged (first REGISTER without auth).
+    _challenged = set()
+
+    def _handle_register(data, addr):
+        has_auth = b"Authorization:" in data
+        call_id = ""
+        for line in data.decode("utf-8", errors="replace").split("\r\n"):
+            if line.lower().startswith("call-id:"):
+                call_id = line.split(":", 1)[1].strip()
+                break
+        if has_auth or call_id in _challenged:
+            # Second REGISTER (or pre-authenticated): accept.
+            _challenged.discard(call_id)
+            resp = _build_response(data, 200, "OK")
+            if resp:
+                print(f"Registrar relay: 200 OK (registered) from {addr}")
+                relay_sock.sendto(resp, addr)
+        else:
+            # First REGISTER without auth: challenge.
+            _challenged.add(call_id)
+            extra = (
+                f'WWW-Authenticate: Digest realm="sip",'
+                f'nonce="{_time.time():.0f}",algorithm=MD5\r\n'
+            )
+            resp = _build_response(data, 401, "Unauthorized", extra)
+            if resp:
+                print(f"Registrar relay: 401 challenge to {addr}")
+                relay_sock.sendto(resp, addr)
 
     print(f"Registrar relay active on {SIP_DOMAIN}:{SIP_PORT}"
           f" <-> PJSIP on {pjsip_addr}")
@@ -711,8 +741,7 @@ def _start_registrar_relay(relay_sock):
             continue
         first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
         if first_line.startswith("REGISTER"):
-            print(f"Registrar relay: 200 OK to REGISTER from {addr}")
-            _respond_register(data, addr)
+            _handle_register(data, addr)
         elif addr == pjsip_addr:
             # Outbound: PJSIP -> relay -> doorbell.
             # Rewrite 127.0.0.1 to the doorbell's real address in
