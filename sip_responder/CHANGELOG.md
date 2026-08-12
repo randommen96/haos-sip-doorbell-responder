@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.60
+
+- Add UDP registrar relay on SIP port: intercepts REGISTER, responds
+  200 OK directly. Forwards all other SIP traffic to PJSIP on port+1.
+  PJSIP's registrar module not available in Alpine py3-pjsua package.
+- PJSIP now listens on 5061; relay on 5060 handles both REGISTER and
+  call forwarding transparently. No doorbell config changes needed.
+
 ## 1.0.59
 
 - Add PJSIP registrar module via ctypes: responds 200 OK to doorbell
