@@ -660,7 +660,7 @@ def _start_registrar_relay(relay_sock):
     import time as _time
     pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
 
-    def _build_response(data, code, phrase, extra=""):
+    def _build_response(data, code, phrase, addr=("", 0), extra=""):
         lines = data.decode("utf-8", errors="replace").split("\r\n")
         via = from_h = to_h = call_id = cseq = contact = expires = ""
         for line in lines:
@@ -681,8 +681,11 @@ def _start_registrar_relay(relay_sock):
                 expires = line.split(":", 1)[1].strip()
         if not all([via, from_h, to_h, call_id, cseq]):
             return None
+        # RFC 3581: set received/rport on Via if request had bare rport.
+        if "rport" in via and "rport=" not in via:
+            via = via.rstrip() \
+                + f";received={addr[0]};rport={addr[1]}\r\n"
         # Asterisk sets To tag = Via branch param for all responses > 100.
-        # Our old tag "registrar" was rejected; the branch value is accepted.
         if "tag=" not in to_h and via:
             branch = via.split("branch=")[-1].split(";")[0].strip()
             to_h = to_h.rstrip() + f";tag={branch}\r\n"
@@ -724,7 +727,7 @@ def _start_registrar_relay(relay_sock):
         if has_auth or call_id in _challenged:
             # Second REGISTER (or pre-authenticated): accept.
             _challenged.discard(call_id)
-            resp = _build_response(data, 200, "OK")
+            resp = _build_response(data, 200, "OK", addr=addr)
             if resp:
                 print(f"Registrar relay: 200 OK (registered) from {addr}")
                 # Show raw bytes for debugging YATE parsing
@@ -744,7 +747,8 @@ def _start_registrar_relay(relay_sock):
                 f'algorithm=MD5,'
                 f'qop="auth"\r\n'
             )
-            resp = _build_response(data, 401, "Unauthorized", extra)
+            resp = _build_response(data, 401, "Unauthorized", addr=addr,
+                                    extra=extra)
             if resp:
                 print(f"Registrar relay: 401 challenge to {addr}")
                 relay_sock.sendto(resp, addr)
