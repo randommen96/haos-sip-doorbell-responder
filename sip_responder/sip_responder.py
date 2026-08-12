@@ -46,8 +46,6 @@ import shutil
 import tempfile
 import queue
 import threading
-import socket as _socket
-
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
     load_options, OPTIONS_PATH,
@@ -635,90 +633,6 @@ def process_outbound_requests():
 # SIP endpoint setup
 # ---------------------------------------------------------------------------
 
-# SIP_REGISTRAR_PORT — PJSIP runs on this port, the relay on SIP_PORT.
-_SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
-
-
-def _start_registrar_relay(relay_sock):
-    """Run the registrar relay loop in a daemon thread.
-
-    The KB8113 requires a successful REGISTER before it will auto-answer
-    incoming calls.  PJSIP's registrar module is not compiled in Alpine's
-    py3-pjsua package, so we handle REGISTER ourselves with a simple socket.
-    The socket must be bound in the main thread before PJSIP starts.
-    """
-    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
-
-    def _respond_register(data, addr):
-        """Parse a REGISTER request and send 200 OK."""
-        lines = data.decode("utf-8", errors="replace").split("\r\n")
-        via = from_h = to_h = call_id = cseq = ""
-        for line in lines:
-            low = line.lower()
-            if low.startswith("via:"):
-                via = line
-            elif low.startswith("from:"):
-                from_h = line
-            elif low.startswith("to:"):
-                to_h = line
-            elif low.startswith("call-id:"):
-                call_id = line
-            elif low.startswith("cseq:"):
-                cseq = line
-        if not all([via, from_h, to_h, call_id, cseq]):
-            return
-        if "tag=" not in to_h:
-            to_h = to_h.rstrip() + ";tag=registrar-relay\r\n"
-        cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
-        response = (
-            "SIP/2.0 200 OK\r\n"
-            f"{via}\r\n"
-            f"{from_h}\r\n"
-            f"{to_h}"
-            f"{call_id}\r\n"
-            f"CSeq: {cseq_num} REGISTER\r\n"
-            "Expires: 3600\r\n"
-            "Content-Length: 0\r\n\r\n"
-        )
-        relay_sock.sendto(response.encode(), addr)
-
-    print(f"Registrar relay active — REGISTER handled, other SIP forwarded"
-          f" bidirectionally via {pjsip_addr}")
-    while True:
-        try:
-            data, addr = relay_sock.recvfrom(65535)
-        except _socket.timeout:
-            continue
-        except OSError:
-            break
-        if not data:
-            continue
-        first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
-        if first_line.startswith("REGISTER"):
-            print(f"Registrar relay: responding 200 OK to REGISTER from {addr}")
-            _respond_register(data, addr)
-        elif addr == pjsip_addr:
-            # Outbound: PJSIP sends via proxy → relay forwards to doorbell.
-            # Parse destination from Request-URI, forward, skip response
-            # (SIP responses go directly to PJSIP via Via header).
-            try:
-                parts = first_line.split(" ")
-                uri = parts[1] if len(parts) > 1 else ""
-                host = uri.split("sip:")[-1].split(":")[0] if "sip:" in uri else ""
-                port = int(uri.rsplit(":", 1)[-1]) if ":" in uri.split("sip:")[-1] else 5060
-                if host:
-                    relay_sock.sendto(data, (host, port))
-            except (IndexError, ValueError):
-                pass
-        else:
-            # Inbound: doorbell → relay → PJSIP, forward response back.
-            try:
-                relay_sock.sendto(data, pjsip_addr)
-                resp, _ = relay_sock.recvfrom(65535)
-                relay_sock.sendto(resp, addr)
-            except _socket.timeout:
-                pass
-
 
 def setup_sip_endpoint():
     ep_cfg = pj.EpConfig()
@@ -734,10 +648,8 @@ def setup_sip_endpoint():
     ep.libCreate()
     ep.libInit(ep_cfg)
 
-    # PJSIP runs on _SIP_REGISTRAR_PORT (SIP_PORT + 1) — the registrar
-    # relay on SIP_PORT handles REGISTER and forwards call traffic.
     sip_tp_config = pj.TransportConfig()
-    sip_tp_config.port = _SIP_REGISTRAR_PORT
+    sip_tp_config.port = SIP_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
@@ -758,11 +670,6 @@ def setup_sip_endpoint():
     # The KB8113 YATE stack has broken re-INVITE handling.
     acfg.callConfig.timerMinSESec = 90
     acfg.callConfig.timerSessExpiresSec = 3600
-    # Route outbound SIP through the relay on SIP_PORT so the
-    # doorbell sees traffic from port 5060 (where it registered),
-    # not from PJSIP's port 5061.
-    acfg.proxyConfig.proxyUse = 1  # PJ_TRUE
-    acfg.proxyConfig.proxyUri = f"sip:127.0.0.1:{SIP_PORT};transport=udp"
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
@@ -832,24 +739,14 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Start registrar relay on SIP_PORT — must bind BEFORE PJSIP starts.
-    #    Bind synchronously, then hand the socket to a daemon thread.
-    relay_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-    relay_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-    relay_sock.bind((SIP_DOMAIN, SIP_PORT))
-    relay_sock.settimeout(1.0)
-    print(f"Registrar relay bound to {SIP_DOMAIN}:{SIP_PORT}")
-    threading.Thread(target=_start_registrar_relay, args=(relay_sock,),
-                     daemon=True).start()
-
-    # 4. Start SIP endpoint on the relay-forwarding port.
+    # 3. Start SIP endpoint
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 
-    # 5. Event loop — with threadCnt=0, we must poll for SIP events.
+    # 4. Event loop — with threadCnt=0, we must poll for SIP events.
     #    Outbound requests are drained here (main thread) because pjsua2
     #    is not thread-safe: MQTT callbacks only enqueue jobs.
     try:
