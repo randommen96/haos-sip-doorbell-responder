@@ -646,20 +646,35 @@ def _setup_registrar():
     if _REGISTRAR_SETUP_DONE:
         return
     try:
-        lib = ctypes.CDLL("libpjsip-simple.so.2")
-        lib.pjsip_registrar_create.argtypes = [
-            ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
-        ]
-        lib.pjsip_registrar_create.restype = ctypes.c_int
-        # pjsua_get_pjsip_endpoint() is in libpjsua (C library), not libpjsua2
         pjsua_lib = ctypes.CDLL("libpjsua.so.2")
         pjsua_lib.pjsua_get_pjsip_endpoint.restype = ctypes.c_void_p
         endpt = pjsua_lib.pjsua_get_pjsip_endpoint()
-        lib.pjsip_registrar_create(endpt, None, None)
+
+        # pjsip_registrar_create may be in libpjsua or libpjsip-simple
+        # depending on how Alpine compiled PJSIP.
+        registrar_create = None
+        for soname in ("libpjsua.so.2", "libpjsip-simple.so.2"):
+            try:
+                lib = ctypes.CDLL(soname)
+                registrar_create = lib.pjsip_registrar_create
+                registrar_create.argtypes = [
+                    ctypes.c_void_p, ctypes.c_void_p, ctypes.c_void_p,
+                ]
+                registrar_create.restype = ctypes.c_int
+                break
+            except AttributeError:
+                continue
+
+        if registrar_create is None:
+            raise RuntimeError(
+                "pjsip_registrar_create not found (not compiled into Alpine PJSIP)"
+            )
+
+        registrar_create(endpt, None, None)
         _REGISTRAR_SETUP_DONE = True
         print("Registrar module loaded — doorbell REGISTER will get 200 OK.")
     except Exception as e:
-        print(f"WARNING: Could not load registrar module: {e}")
+        print(f"WARNING: Registrar not available: {e}")
         print("  Doorbell REGISTER will continue to be dropped.")
 
 
