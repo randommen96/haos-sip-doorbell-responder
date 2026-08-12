@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.80
+
+- Replace registrar relay with indoor station XML registration on port 5065.
+  Uses Hikvision private protocol to register as an authorized indoor station,
+  establishing trust so the doorbell auto-answers outbound calls.
+- PJSIP back on port 5060 (no port splitting needed).
+- Removed 160+ lines of relay/forwarding infrastructure.
+
 ## 1.0.79
 
 - Rewrite Via sent-by in outbound INVITEs to port 5060 so the doorbell
