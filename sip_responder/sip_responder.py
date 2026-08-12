@@ -588,7 +588,7 @@ def start_outbound_call(job):
     # Route through the relay on SIP_PORT so the INVITE appears from
     # port 5060 (where the doorbell registered).  The relay rewrites
     # the destination from 127.0.0.1:5060 to the doorbell's real address.
-    uri = f"sip:{DOORBELL_NUMBER}@127.0.0.1:{SIP_PORT}" if real_uri else ""
+    uri = f"sip:{DOORBELL_NUMBER}@{SIP_DOMAIN}:{SIP_PORT}" if real_uri else ""
 
     if not uri:
         print("ERROR: no outbound SIP URI — configure outbound_sip_uri"
@@ -681,8 +681,10 @@ def _start_registrar_relay(relay_sock):
                 expires = line.split(":", 1)[1].strip()
         if not all([via, from_h, to_h, call_id, cseq]):
             return None
-        if "tag=" not in to_h:
-            to_h = to_h.rstrip() + ";tag=registrar\r\n"
+        # Don't add a tag to the To header — some devices (KB8113/YATE)
+        # reject REGISTER 200 OK responses with unexpected tags.
+        if "tag=" in to_h:
+            to_h = to_h.rstrip() + "\r\n"
         cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
         resp = (
             f"SIP/2.0 {code} {phrase}\r\n"
@@ -758,10 +760,11 @@ def _start_registrar_relay(relay_sock):
                 host = target.replace("sip:", "").split("@")[-1].split(":")[0] \
                     if "@" in target else target.replace("sip:", "").split(":")[0]
                 port = target.split(":")[-1] if ":" in target.split("@")[-1] else "5060"
-                fwd = data.replace(b"@127.0.0.1:5060",
+                relay_addr = f"@{SIP_DOMAIN}:{SIP_PORT}".encode()
+                fwd = data.replace(relay_addr,
                                    f"@{host}:{port}".encode())
-                fwd = fwd.replace(b"@127.0.0.1:5061",
-                                  f"@{SIP_DOMAIN}:5060".encode())
+                fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
+                                  f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
                 print(f"Registrar relay: forwarding outbound to {host}:{port}")
                 relay_sock.sendto(fwd, (host, int(port)))
                 try:
