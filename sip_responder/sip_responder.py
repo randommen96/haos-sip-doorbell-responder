@@ -669,8 +669,11 @@ def setup_sip_endpoint():
     # the Docker-internal bridge IP. Without this, the doorbell sees
     # 172.30.x.x addresses it can't route to.
     acfg.mediaConfig.transportConfig.publicAddr = SIP_DOMAIN
+    # Session timers cause 32-second drops on KB8113 — its re-INVITE
+    # handling is broken (known YATE stack bug). Disable entirely.
+    acfg.callConfig.timerMinSESec = 0
+    acfg.callConfig.timerSessExpiresSec = 0
     acfg.videoConfig.autoShowIncoming = False
-    acfg.videoConfig.autoTransmitOutgoing = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
     acc = DoorbellAccount()
