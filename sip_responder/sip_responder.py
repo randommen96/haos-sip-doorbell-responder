@@ -683,7 +683,7 @@ def _start_registrar_relay(relay_sock):
         relay_sock.sendto(response.encode(), addr)
 
     print(f"Registrar relay active — REGISTER handled, other SIP forwarded"
-          f" to {pjsip_addr}")
+          f" bidirectionally via {pjsip_addr}")
     while True:
         try:
             data, addr = relay_sock.recvfrom(65535)
@@ -697,7 +697,22 @@ def _start_registrar_relay(relay_sock):
         if first_line.startswith("REGISTER"):
             print(f"Registrar relay: responding 200 OK to REGISTER from {addr}")
             _respond_register(data, addr)
+        elif addr == pjsip_addr:
+            # Outbound: PJSIP sends via proxy → relay forwards to doorbell.
+            # Parse destination from Request-URI.
+            try:
+                parts = first_line.split(" ")
+                uri = parts[1] if len(parts) > 1 else ""
+                host = uri.split("sip:")[-1].split(":")[0] if "sip:" in uri else ""
+                port = int(uri.rsplit(":", 1)[-1]) if ":" in uri.split("sip:")[-1] else 5060
+                if host:
+                    relay_sock.sendto(data, (host, port))
+                    resp, _ = relay_sock.recvfrom(65535)
+                    relay_sock.sendto(resp, pjsip_addr)
+            except (_socket.timeout, IndexError, ValueError):
+                pass
         else:
+            # Inbound: doorbell → relay → PJSIP, forward response back.
             try:
                 relay_sock.sendto(data, pjsip_addr)
                 resp, _ = relay_sock.recvfrom(65535)
@@ -744,6 +759,11 @@ def setup_sip_endpoint():
     # The KB8113 YATE stack has broken re-INVITE handling.
     acfg.callConfig.timerMinSESec = 90
     acfg.callConfig.timerSessExpiresSec = 3600
+    # Route outbound SIP through the relay on SIP_PORT so the
+    # doorbell sees traffic from port 5060 (where it registered),
+    # not from PJSIP's port 5061.
+    acfg.proxyConfig.proxyUse = 1  # PJ_TRUE
+    acfg.proxyConfig.proxyUri = f"sip:127.0.0.1:{SIP_PORT};transport=udp"
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
