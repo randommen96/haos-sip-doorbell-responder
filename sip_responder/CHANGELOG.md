@@ -1,6 +1,6 @@
 # Changelog
 
-## 1.0.58
+## 1.0.59
 
 - Add PJSIP registrar module via ctypes: responds 200 OK to doorbell
   REGISTER requests. The registrar is in libpjsip-simple which is always
