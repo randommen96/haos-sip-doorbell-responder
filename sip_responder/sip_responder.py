@@ -662,7 +662,7 @@ def _start_registrar_relay(relay_sock):
 
     def _build_response(data, code, phrase, extra=""):
         lines = data.decode("utf-8", errors="replace").split("\r\n")
-        via = from_h = to_h = call_id = cseq = contact = ""
+        via = from_h = to_h = call_id = cseq = contact = expires = ""
         for line in lines:
             low = line.lower()
             if low.startswith("via:"):
@@ -677,6 +677,8 @@ def _start_registrar_relay(relay_sock):
                 cseq = line
             elif low.startswith("contact:"):
                 contact = line.strip()
+            elif low.startswith("expires:"):
+                expires = line.split(":", 1)[1].strip()
         if not all([via, from_h, to_h, call_id, cseq]):
             return None
         if "tag=" not in to_h:
@@ -691,7 +693,9 @@ def _start_registrar_relay(relay_sock):
             f"CSeq: {cseq_num} REGISTER\r\n"
         )
         if code == 200 and contact:
-            resp += f"{contact};expires=3600\r\n"
+            resp += f"{contact};expires={expires or '3600'}\r\n"
+            if expires:
+                resp += f"Expires: {expires}\r\n"
         resp += extra
         resp += (
             f"Date: {_time.strftime('%a, %d %b %Y %H:%M:%S GMT', _time.gmtime())}\r\n"
