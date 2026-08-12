@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.58
+
+- Add PJSIP registrar module via ctypes: responds 200 OK to doorbell
+  REGISTER requests. The registrar is in libpjsip-simple which is always
+  installed alongside py3-pjsua. If loading fails, logs a warning and
+  continues (REGISTER will be dropped, same as before).
+
 ## 1.0.57
 
 - Rename default `sip_username` from `doorbell` to `responder` — fixes
