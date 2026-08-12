@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.78
+
+- Add full hex dump of forwarded INVITE to verify relay rewriting
+
 ## 1.0.77
 
 - Fix missing \r\n on To header in REGISTER response f-string.

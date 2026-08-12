@@ -787,8 +787,7 @@ def _start_registrar_relay(relay_sock):
                 fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
                                   f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
                 print(f"Registrar relay: forwarding outbound to {host}:{port}")
-                # Show first 100 bytes to verify SDP isn't corrupted
-                print(f"  INVITE start: {fwd[:100].hex()}")
+                print(f"  INVITE hex: {fwd.hex()}")
                 relay_sock.sendto(fwd, (host, int(port)))
                 # Don't wait for or forward responses — SIP responses
                 # go directly to PJSIP via the Via header (5061).
