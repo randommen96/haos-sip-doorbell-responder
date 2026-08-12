@@ -1,9 +1,16 @@
 # Changelog
 
-## 1.0.45
+## 1.0.48
 
-- Fix NameError: `mqtt_client.on_message` referenced `_on_mqtt_message` before
-  it was defined, crashing the app at import. Moved assignment after definition.
+- Default `mqtt_listen_topic` to `"doorbell/announce"` instead of empty.
+- Auto-discover doorbell SIP URI from first incoming call's `remoteUri` —
+  no need to manually configure `outbound_sip_uri` for the common case.
+
+## 1.0.47
+
+- Refactor outbound call state: replace 5 separate `global` variables with
+  a single `_outbound` dict. No `global` declarations needed — cleaner and
+  eliminates the class of scoping bugs fixed in 1.0.45/1.0.46.
 
 ## 1.0.46
 
@@ -11,11 +18,10 @@
   and `_outbound_call_id` were assigned without `global` declaration,
   causing Python to treat them as unbound locals on first read.
 
-## 1.0.47
+## 1.0.45
 
-- Refactor outbound call state: replace 5 separate `global` variables with
-  a single `_outbound` dict. No `global` declarations needed — cleaner and
-  eliminates the class of scoping bugs fixed in 1.0.45/1.0.46.
+- Fix NameError: `mqtt_client.on_message` referenced `_on_mqtt_message` before
+  it was defined, crashing the app at import. Moved assignment after definition.
 
 ## 1.0.44
 
