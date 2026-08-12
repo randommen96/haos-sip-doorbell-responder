@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.43"
+version: "1.0.44"
 slug: "sip_responder"
 url: "https://github.com/randommen96/haos-sip-doorbell-responder"
 documentation: "https://github.com/randommen96/haos-sip-doorbell-responder/blob/main/README.md"
@@ -40,6 +40,12 @@ options:
   log_level: 1
   mqtt_username: ""
   mqtt_password: ""
+  mqtt_listen_topic: ""
+  outbound_sip_uri: ""
+  tts_retry_enabled: true
+  tts_retry_max_attempts: 0
+  tts_retry_initial_delay: 5
+  tts_retry_max_delay: 300
 
 schema:
   sip_username: str
@@ -59,6 +65,12 @@ schema:
   log_level: int
   mqtt_username: str
   mqtt_password: password
+  mqtt_listen_topic: str
+  outbound_sip_uri: str
+  tts_retry_enabled: bool
+  tts_retry_max_attempts: int
+  tts_retry_initial_delay: int
+  tts_retry_max_delay: int
 
 map:
   - media:rw
