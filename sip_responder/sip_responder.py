@@ -663,6 +663,12 @@ def setup_sip_endpoint():
     # reserved), one pair for the active call (inbound or outbound —
     # mutual exclusion guarantees only one at a time).
     acfg.mediaConfig.transportConfig.portRange = 2
+    # Session timer values must be >= 90 (RFC 4028) and
+    # sess_expires >= min_se (PJSIP assertion).  Set both to a
+    # high value so re-INVITEs never fire during normal calls.
+    # The KB8113 YATE stack has broken re-INVITE handling.
+    acfg.callConfig.timerMinSESec = 90
+    acfg.callConfig.timerSessExpiresSec = 3600
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
