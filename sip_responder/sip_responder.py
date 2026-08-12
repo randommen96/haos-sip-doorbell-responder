@@ -682,13 +682,15 @@ def _start_registrar_relay(relay_sock):
         if not all([via, from_h, to_h, call_id, cseq]):
             return None
         # RFC 3581: set received/rport on Via if request had bare rport.
+        # Don't add \r\n — the f-string adds it already.
         if "rport" in via and "rport=" not in via:
             via = via.rstrip() \
-                + f";received={addr[0]};rport={addr[1]}\r\n"
+                + f";received={addr[0]};rport={addr[1]}"
         # Asterisk sets To tag = Via branch param for all responses > 100.
+        # Don't add \r\n — the f-string adds it already.
         if "tag=" not in to_h and via:
             branch = via.split("branch=")[-1].split(";")[0].strip()
-            to_h = to_h.rstrip() + f";tag={branch}\r\n"
+            to_h = to_h.rstrip() + f";tag={branch}"
         cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
         resp = (
             f"SIP/2.0 {code} {phrase}\r\n"
