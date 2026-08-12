@@ -45,6 +45,7 @@ options:
   mqtt_listen_topic: "doorbell/announce"
   doorbell_number: "doorbell"
   outbound_sip_uri: ""
+  indoor_station_password: ""
   tts_retry_enabled: true
   tts_retry_max_attempts: 0
   tts_retry_initial_delay: 5
@@ -71,6 +72,7 @@ schema:
   mqtt_listen_topic: str
   doorbell_number: str
   outbound_sip_uri: str
+  indoor_station_password: password
   tts_retry_enabled: bool
   tts_retry_max_attempts: int
   tts_retry_initial_delay: int

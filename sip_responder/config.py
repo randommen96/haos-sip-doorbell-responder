@@ -31,6 +31,7 @@ def load_options():
         "mqtt_listen_topic": "doorbell/announce",
         "doorbell_number": "doorbell",
         "outbound_sip_uri": "",
+        "indoor_station_password": "",
         "tts_retry_enabled": True,
         "tts_retry_max_attempts": 0,
         "tts_retry_initial_delay": 5,

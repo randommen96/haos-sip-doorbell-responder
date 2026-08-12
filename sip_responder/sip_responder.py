@@ -109,6 +109,7 @@ TTS_VOICE = cfg.get("tts_voice", "")
 MQTT_LISTEN_TOPIC = cfg.get("mqtt_listen_topic", "")
 DOORBELL_NUMBER = cfg.get("doorbell_number", "doorbell")
 OUTBOUND_SIP_URI = cfg.get("outbound_sip_uri", "")
+INDOOR_STATION_PASSWORD = cfg.get("indoor_station_password", "") or SIP_PASSWORD
 
 # TTS retry — exponential backoff for startup and on-demand generation
 TTS_RETRY_ENABLED = cfg.get("tts_retry_enabled", True)
@@ -726,13 +727,24 @@ def _start_indoor_station_register():
             if "opaque=" in low:
                 opaque_val = line.split("opaque=")[-1].split(",")[0].strip('"')
         if nonce_val:
-            # Build Authorization with simple MD5 — just send something plausible
+            # Compute proper Digest response using the doorbell's
+            # Registration Password (same as sip_password).
+            import hashlib
+            ha1 = hashlib.md5(
+                f"responder:{realm}:{INDOOR_STATION_PASSWORD}".encode()
+            ).hexdigest()
+            ha2 = hashlib.md5(
+                f"REGISTER:sip:{DOORBELL_IP}:5065".encode()
+            ).hexdigest()
+            response = hashlib.md5(
+                f"{ha1}:{nonce_val}:{ha2}".encode()
+            ).hexdigest()
             auth = (
                 f'Authorization: Digest username="responder",'
                 f'realm="{realm}",'
                 f'nonce="{nonce_val}",'
                 f'uri="sip:{DOORBELL_IP}:5065",'
-                f'response="00000000000000000000000000000000",'
+                f'response="{response}",'
                 f'algorithm=MD5'
             )
             if opaque_val:
