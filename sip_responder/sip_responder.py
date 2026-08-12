@@ -219,7 +219,7 @@ def _outbound_tts_worker(message):
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
     )
     if ulaw_path:
-        outbound_queue.put({"message": message, "ulaw_path": ulaw_path})
+        _outbound["queue"].put({"message": message, "ulaw_path": ulaw_path})
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
 
@@ -408,11 +408,15 @@ _account = None  # set by setup_sip_endpoint()
 # Outbound call state — all read/written only in the main thread.
 # pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
 # the main event loop drains the queue and places calls.
-outbound_queue = queue.Queue()  # items: {"message": str, "ulaw_path": str}
-_outbound_active = False
-_outbound_start_time = 0
-_outbound_call_id = None
-_outbound_job = None  # pending job waiting for line to free up
+# Single mutable dict avoids 'global' declarations — we mutate contents,
+# never reassign the _outbound name itself.
+_outbound = {
+    "queue": queue.Queue(),
+    "active": False,
+    "start_time": 0,
+    "call_id": None,
+    "job": None,  # pending job waiting for line to free up
+}
 
 
 def play_audio_in_call(call, ulaw_path):
@@ -483,10 +487,10 @@ class DoorbellAccount(pj.Account):
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
         call_prm = pj.CallOpParam()
-        if _outbound_active or len(_active_calls) > 1:
+        if _outbound["active"] or len(_active_calls) > 1:
             # This call is already in the dict, so len>1 means another
-            # call is in progress; _outbound_active gives the reason.
-            reason = "outbound call in progress" if _outbound_active \
+            # call is in progress; _outbound["active"] gives the reason.
+            reason = "outbound call in progress" if _outbound["active"] \
                      else "another call in progress"
             call_prm.statusCode = 486
             print(f"Busy ({reason}) — rejecting incoming call with 486.")
@@ -538,9 +542,8 @@ class OutboundCall(pj.Call):
             info = self.getInfo()
             print(f"Outbound call disconnected. (last status: {info.lastStatusCode})")
             _active_calls.pop(self.getId(), None)
-            global _outbound_active, _outbound_call_id
-            _outbound_active = False
-            _outbound_call_id = None
+            _outbound["active"] = False
+            _outbound["call_id"] = None
             remove_audio_file(self.ulaw_path)
 
 
@@ -552,7 +555,6 @@ class OutboundCall(pj.Call):
 def start_outbound_call(job):
     """Place the outbound call. Main thread only — called from
     process_outbound_requests. Stores the call for the GC fix."""
-    global _outbound_active, _outbound_start_time, _outbound_call_id
     uri = normalize_sip_uri(OUTBOUND_SIP_URI)
     if not uri:
         print("ERROR: outbound_sip_uri empty — outbound call skipped.")
@@ -567,9 +569,9 @@ def start_outbound_call(job):
         remove_audio_file(job["ulaw_path"])
         return
     _active_calls[call.getId()] = call  # GC fix applies to outbound too
-    _outbound_active = True
-    _outbound_start_time = time.time()
-    _outbound_call_id = call.getId()
+    _outbound["active"] = True
+    _outbound["start_time"] = time.time()
+    _outbound["call_id"] = call.getId()
     print(f"Outbound call placed: {uri} (call id {call.getId()})")
 
 
@@ -578,35 +580,34 @@ def process_outbound_requests():
     queue (latest message wins), starts a pending call once the line is
     free, and enforces the outbound answer timeout. All SIP operations
     stay on the main thread — pjsua2 is not thread-safe."""
-    global _outbound_job, _outbound_active, _outbound_call_id
 
     # Drain the queue, keeping only the most recent job.
     try:
         while True:
-            job = outbound_queue.get_nowait()
-            if _outbound_job is not None:
-                remove_audio_file(_outbound_job["ulaw_path"])  # superseded
-            _outbound_job = job
+            job = _outbound["queue"].get_nowait()
+            if _outbound["job"] is not None:
+                remove_audio_file(_outbound["job"]["ulaw_path"])  # superseded
+            _outbound["job"] = job
     except queue.Empty:
         pass
 
     # Start the pending call once no call is in progress. An in-progress
     # incoming call simply delays this; the check re-runs next iteration.
-    if _outbound_job is not None and not _active_calls:
-        job = _outbound_job
-        _outbound_job = None
+    if _outbound["job"] is not None and not _active_calls:
+        job = _outbound["job"]
+        _outbound["job"] = None
         start_outbound_call(job)
 
     # Give up on unanswered outbound calls (doorbell never auto-answered).
-    if (_outbound_active
-            and time.time() - _outbound_start_time > OUTBOUND_CALL_TIMEOUT):
+    if (_outbound["active"]
+            and time.time() - _outbound["start_time"] > OUTBOUND_CALL_TIMEOUT):
         print("Outbound call timed out (no answer). Hanging up.")
         print("  Check the doorbell's SIP auto-answer setting.")
-        call = _active_calls.get(_outbound_call_id)
+        call = _active_calls.get(_outbound["call_id"])
         if call:
             hangup_prm = pj.CallOpParam()
             call.hangup(hangup_prm)
-        _outbound_active = False
+        _outbound["active"] = False
 
 
 # ---------------------------------------------------------------------------
