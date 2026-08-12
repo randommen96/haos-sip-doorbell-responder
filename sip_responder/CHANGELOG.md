@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.51
+
+- Fix RTP port exhaustion on outbound calls: `portRange` increased from
+  1 to 2, giving the outbound call its own RTP/RTCP port pair (4002-4003).
+  The account reserves 4000-4001; mutual exclusion ensures no further
+  collisions.
+
 ## 1.0.50
 
 - Fix auto-discovery: use `remoteContact` (Contact header) instead of
