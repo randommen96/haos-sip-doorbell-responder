@@ -405,6 +405,10 @@ _active_calls = {}
 _endpoint = None
 _account = None  # set by setup_sip_endpoint()
 
+# Doorbell SIP URI discovered from incoming calls — used as the default
+# outbound_sip_uri when the user hasn't configured one explicitly.
+_discovered_doorbell_uri = None
+
 # Outbound call state — all read/written only in the main thread.
 # pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
 # the main event loop drains the queue and places calls.
@@ -486,6 +490,16 @@ class DoorbellAccount(pj.Account):
         _active_calls[prm.callId] = call
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
+
+        # Learn the doorbell's SIP URI for outbound calls.
+        # remoteUri is the doorbell's own address
+        # (e.g. "sip:doorbell@192.168.1.50:5060").
+        global _discovered_doorbell_uri
+        info = call.getInfo()
+        if info.remoteUri and not _discovered_doorbell_uri:
+            _discovered_doorbell_uri = info.remoteUri
+            print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
+
         call_prm = pj.CallOpParam()
         if _outbound["active"] or len(_active_calls) > 1:
             # This call is already in the dict, so len>1 means another
@@ -555,9 +569,13 @@ class OutboundCall(pj.Call):
 def start_outbound_call(job):
     """Place the outbound call. Main thread only — called from
     process_outbound_requests. Stores the call for the GC fix."""
-    uri = normalize_sip_uri(OUTBOUND_SIP_URI)
+    # Resolve URI: explicit config > auto-discovered from incoming call
+    uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
+        _discovered_doorbell_uri or ""
+    )
     if not uri:
-        print("ERROR: outbound_sip_uri empty — outbound call skipped.")
+        print("ERROR: no outbound SIP URI — configure outbound_sip_uri"
+              " or wait for a doorbell ring to auto-discover it.")
         remove_audio_file(job["ulaw_path"])
         return
     call = OutboundCall(_account, job["ulaw_path"])
@@ -667,8 +685,8 @@ def main():
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
     if MQTT_LISTEN_TOPIC:
-        uri_txt = OUTBOUND_SIP_URI or "(MISSING outbound_sip_uri!)"
-        print(f"  Outbound calls: enabled — topic '{MQTT_LISTEN_TOPIC}' -> {uri_txt}")
+        uri_txt = OUTBOUND_SIP_URI or "(auto-discover on first ring)"
+        print(f"  Outbound calls: topic '{MQTT_LISTEN_TOPIC}' -> {uri_txt}")
     else:
         print("  Outbound calls: disabled (mqtt_listen_topic empty)")
     print(f"  TTS retry: {'enabled' if TTS_RETRY_ENABLED else 'disabled'} "

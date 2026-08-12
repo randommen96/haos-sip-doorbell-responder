@@ -27,7 +27,7 @@ def test_defaults():
     assert opts["log_level"] == 1
     assert opts["mqtt_username"] == ""
     assert opts["mqtt_password"] == ""
-    assert opts["mqtt_listen_topic"] == ""
+    assert opts["mqtt_listen_topic"] == "doorbell/announce"
     assert opts["outbound_sip_uri"] == ""
     assert opts["tts_retry_enabled"] is True
     assert opts["tts_retry_max_attempts"] == 0
