@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.81
+
+- Handle 100 Trying before indoor station REGISTER final response
+
 ## 1.0.80
 
 - Replace registrar relay with indoor station XML registration on port 5065.
