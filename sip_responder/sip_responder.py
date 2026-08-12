@@ -696,7 +696,12 @@ def _start_registrar_relay(relay_sock):
             f"CSeq: {cseq_num} REGISTER\r\n"
         )
         if code == 200 and contact:
-            resp += f"{contact};expires={expires or '3600'}\r\n"
+            # Asterisk strips display name, rebuilds just the URI.
+            # Extract URI from Contact: "name" <uri> or just <uri>.
+            uri_part = contact
+            if "<" in contact and ">" in contact:
+                uri_part = contact[contact.index("<"):contact.index(">") + 1]
+            resp += f"Contact: {uri_part};expires={expires or '3600'}\r\n"
             if expires:
                 resp += f"Expires: {expires}\r\n"
         resp += extra
