@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.74
+
+- Add hex dump of REGISTER 200 OK for byte-level comparison with Asterisk
+- Remove 100 Trying (didn't affect YATE transaction state matching)
+
 ## 1.0.73
 
 - Send 100 Trying before REGISTER 200 OK: YATE requires provisional
