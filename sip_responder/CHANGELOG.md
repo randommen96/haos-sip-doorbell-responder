@@ -1,10 +1,5 @@
 # Changelog
 
-## 1.0.55
-
-- Fix session timer assertion: PJSIP requires `Min-SE >= 90` per RFC 4028.
-  Setting it to 0 caused `Assert failed: setting->min_se >= 90`. Set to 90.
-
 ## 1.0.57
 
 - Rename default `sip_username` from `doorbell` to `responder` — fixes
@@ -17,6 +12,15 @@
   keeping re-INVITEs out of normal short TTS calls.
 
 ## 1.0.56
+
+- Remove session timer config entirely: PJSIP defaults have them disabled.
+  Sequential assertion failures (min_se, then sess_expires >= min_se)
+  confirmed the config approach is wrong — just don't configure them.
+
+## 1.0.55
+
+- Fix session timer assertion: PJSIP requires `Min-SE >= 90` per RFC 4028.
+  Setting it to 0 caused `Assert failed: setting->min_se >= 90`. Set to 90.
 
 - Remove session timer config entirely: PJSIP defaults have them disabled.
   Sequential assertion failures (min_se, then sess_expires >= min_se)
