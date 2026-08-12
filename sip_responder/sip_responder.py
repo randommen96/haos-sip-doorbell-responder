@@ -645,6 +645,8 @@ def _start_indoor_station_register():
     """Daemon thread: register as an indoor station on the doorbell
     using Hikvision's private XML SIP protocol on port 5065."""
     import time as _time
+    import random
+    import hashlib
     DOORBELL_IP = "10.26.5.13"  # fallback; will be refined
     # Try to extract doorbell IP from discovered URI
     if _discovered_doorbell_uri:
@@ -725,7 +727,6 @@ def _start_indoor_station_register():
         cseq += 1
         return msg
 
-    import random
     print(f"Indoor station: registering on {DOORBELL_IP}:5065"
           f" (local port {bind_port})")
     resp = _send(_build_register(), expect_response=True)
@@ -743,7 +744,6 @@ def _start_indoor_station_register():
             if "qop=" in low:
                 qop_val = line.split("qop=")[-1].split(",")[0].strip('"')
         if nonce_val:
-            import hashlib
             uri = f"sip:{DOORBELL_IP}:5065"
             ha1 = hashlib.md5(
                 f"{SIP_USERNAME}:{realm}:{INDOOR_STATION_PASSWORD}".encode()

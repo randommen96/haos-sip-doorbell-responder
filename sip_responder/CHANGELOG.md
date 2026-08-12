@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.83
+
+- Fix UnboundLocalError: move random/hashlib imports to function top
+
 ## 1.0.82
 
 - Match hikvision_register.py exactly: ephemeral bind port, proper qop=auth
