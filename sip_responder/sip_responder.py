@@ -767,11 +767,8 @@ def _start_registrar_relay(relay_sock):
                                   f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
                 print(f"Registrar relay: forwarding outbound to {host}:{port}")
                 relay_sock.sendto(fwd, (host, int(port)))
-                try:
-                    resp, _ = relay_sock.recvfrom(65535)
-                    relay_sock.sendto(resp, pjsip_addr)
-                except _socket.timeout:
-                    pass
+                # Don't wait for or forward responses — SIP responses
+                # go directly to PJSIP via the Via header (5061).
         else:
             # Inbound: doorbell -> relay -> PJSIP
             try:
