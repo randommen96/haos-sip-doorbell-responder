@@ -649,6 +649,8 @@ def setup_sip_endpoint():
 
     sip_tp_config = pj.TransportConfig()
     sip_tp_config.port = SIP_PORT
+    # Advertise the HA host's LAN IP instead of Docker bridge IP.
+    sip_tp_config.publicAddr = SIP_DOMAIN
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
