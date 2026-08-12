@@ -663,6 +663,10 @@ def setup_sip_endpoint():
     # reserved), one pair for the active call (inbound or outbound —
     # mutual exclusion guarantees only one at a time).
     acfg.mediaConfig.transportConfig.portRange = 2
+    # Advertise the HA host's LAN IP in SDP and Contact headers, not
+    # the Docker-internal bridge IP. Without this, the doorbell sees
+    # 172.30.x.x addresses it can't route to.
+    acfg.mediaConfig.transportConfig.publicAddr = SIP_DOMAIN
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
     acfg.videoConfig.autoTransmitOutgoing = False
