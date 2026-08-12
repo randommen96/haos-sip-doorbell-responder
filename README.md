@@ -178,7 +178,7 @@ action:
 
 You can make the doorbell speak arbitrary messages by publishing to an MQTT topic:
 
-1. Configure `mqtt_listen_topic` (e.g., `doorbell/announce`) and `outbound_sip_uri` (doorbell's IP)
+1. `mqtt_listen_topic` defaults to `doorbell/announce`. `outbound_sip_uri` is optional — the doorbell's SIP address is auto-discovered on the first ring.
 2. Publish a message to the topic — the app generates TTS, calls the doorbell, plays it, hangs up
 
 The doorbell auto-answers incoming SIP calls by default. Use in automations:

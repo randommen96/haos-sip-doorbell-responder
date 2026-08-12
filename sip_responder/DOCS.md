@@ -37,8 +37,8 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `rtp_port_start` | `4000` | First RTP port (uses this + next for audio) |
 | `sip_display_name` | `"Doorbell Responder"` | Display name in SIP messages |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
-| `mqtt_listen_topic` | `""` | MQTT topic for outbound call triggers (empty = disabled) |
-| `outbound_sip_uri` | `""` | SIP URI to call for outbound triggers, e.g. `sip:192.168.1.50:5060` |
+| `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound call triggers (empty = disabled) |
+| `outbound_sip_uri` | `""` | SIP URI to call. Auto-discovered from first ring if empty. |
 | `tts_retry_enabled` | `true` | Retry TTS with backoff on failure |
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
 | `tts_retry_initial_delay` | `5` | Seconds before first retry |
@@ -72,8 +72,9 @@ The app can make outbound SIP calls to the doorbell (or any SIP endpoint), trigg
 
 ### Setup
 
-1. Configure `mqtt_listen_topic` (e.g., `doorbell/announce`) — the topic to subscribe to
-2. Configure `outbound_sip_uri` — the doorbell's SIP address (e.g., `sip:192.168.1.50:5060`)
+1. `mqtt_listen_topic` defaults to `doorbell/announce` — set to `""` to disable
+2. `outbound_sip_uri` is optional — the doorbell's SIP address is auto-discovered
+   on the first ring. Only set it explicitly if you need a different target.
 3. The doorbell auto-answers by default when it receives a SIP call — no extra configuration needed
 
 ### Example Automation
