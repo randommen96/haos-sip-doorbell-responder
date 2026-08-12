@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.65
+
+- Fix relay outbound forwarding: rewrite Contact and Via 127.0.0.1
+  addresses to LAN IP so doorbell can route back. Added diagnostic
+  log for outbound forwarding.
+
 ## 1.0.64
 
 - Relay V2: proper REGISTER 200 OK with Contact header and expires,
