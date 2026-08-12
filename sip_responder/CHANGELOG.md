@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.72
+
+- Remove debug log truncation to see full REGISTER 200 OK response
+
 ## 1.0.71
 
 - Strip display name from Contact in REGISTER 200 OK (matches Asterisk behavior)
