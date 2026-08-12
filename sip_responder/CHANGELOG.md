@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.82
+
+- Match hikvision_register.py exactly: ephemeral bind port, proper qop=auth
+  with cnonce/nc, correct URI format, XML body with valid serial/mac
+
 ## 1.0.81
 
 - Handle 100 Trying before indoor station REGISTER final response

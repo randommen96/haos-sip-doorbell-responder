@@ -660,21 +660,23 @@ def _start_indoor_station_register():
             DOORBELL_IP = uri.split(":")[0] if ":" in uri else uri
 
     sock = None
+    bind_port = 0
     try:
         sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+        sock.bind(("0.0.0.0", 0))  # ephemeral port, like hikvision_register.py
+        bind_port = sock.getsockname()[1]
         sock.settimeout(2.0)
     except Exception as e:
         print(f"Indoor station register: socket error: {e}")
         return
 
     cseq = 1
-    call_id = f"{int(_time.time())}@indoor"
+    call_id = ''.join([str(random.randrange(10)) for _ in range(10)])
     branch_base = f"z9hG4bK{_os.urandom(4).hex()}"
 
     def _send(msg, expect_response=False):
         sock.sendto(msg.encode(), (DOORBELL_IP, 5065))
         if expect_response:
-            # Skip 100 Trying; wait for final response (401/200/etc.)
             for _ in range(5):
                 try:
                     data, _ = sock.recvfrom(65535)
@@ -688,41 +690,48 @@ def _start_indoor_station_register():
 
     def _build_register(extra_headers=""):
         nonlocal cseq
+        body = (
+            '<regXML>\r\n'
+            '<version>V2.0.0</version>\r\n'
+            '<regDevName>HA Responder</regDevName>\r\n'
+            '<regDevSerial>Q12345678</regDevSerial>\r\n'
+            '<regDevMacAddr>00:0c:29:12:12:12</regDevMacAddr>\r\n'
+            '</regXML>\r\n'
+        )
         msg = (
             f"REGISTER sip:{DOORBELL_IP}:5065 SIP/2.0\r\n"
-            f"Via: SIP/2.0/UDP {SIP_DOMAIN}:5065;rport;branch={branch_base}{cseq}\r\n"
-            f"From: <sip:responder@{DOORBELL_IP}:5065>;tag=indoor-station\r\n"
-            f"To: <sip:responder@{DOORBELL_IP}:5065>\r\n"
+            f"Via: SIP/2.0/UDP {SIP_DOMAIN}:{bind_port};rport;"
+            f"branch={branch_base}{cseq}\r\n"
+            f"Max-Forwards: 70\r\n"
+            f"Contact: <sip:{SIP_USERNAME}@{SIP_DOMAIN}:{bind_port}>\r\n"
+            f"To: \"\"<sip:{SIP_USERNAME}@{DOORBELL_IP}:5065>\r\n"
+            f"From: \"HA Responder\"<sip:{SIP_USERNAME}@{DOORBELL_IP}:5065>;"
+            f"tag=indoor\r\n"
             f"Call-ID: {call_id}\r\n"
             f"CSeq: {cseq} REGISTER\r\n"
-            f"Contact: <sip:responder@{SIP_DOMAIN}:5065>\r\n"
-            f"Expires: 3600\r\n"
+            f"Expires: 600\r\n"
+            f"Allow: NOTIFY, INVITE, ACK, CANCEL, BYE, REFER, INFO,"
+            f" OPTIONS, MESSAGE\r\n"
+            f"Content-Type: text/xml\r\n"
             f"User-Agent: eXosip/3.6.0\r\n"
-            f"Max-Forwards: 70\r\n"
         )
         if extra_headers:
             msg += extra_headers
         msg += (
-            'Content-Type: text/xml\r\n'
-            'Content-Length: 131\r\n'
-            '\r\n'
-            '<regXML>\r\n'
-            '<version>V2.0.0</version>\r\n'
-            '<regDevName>HA Responder</regDevName>\r\n'
-            '<regDevSerial>1234567890</regDevSerial>\r\n'
-            '<regDevMacAddr>aa:bb:cc:dd:ee:ff</regDevMacAddr>\r\n'
-            '</regXML>\r\n'
+            f"Content-Length: {len(body.encode())}\r\n"
+            f"\r\n"
+            f"{body}"
         )
         cseq += 1
         return msg
 
-    print(f"Indoor station: registering with doorbell at {DOORBELL_IP}:5065")
-    # Send initial REGISTER
+    import random
+    print(f"Indoor station: registering on {DOORBELL_IP}:5065"
+          f" (local port {bind_port})")
     resp = _send(_build_register(), expect_response=True)
     if resp and ("401" in resp or "407" in resp):
-        # Parse WWW-Authenticate for realm/nonce/qop/opaque
         realm = "Hikvision"
-        nonce_val = opaque_val = ""
+        nonce_val = opaque_val = qop_val = ""
         for line in resp.split("\r\n"):
             low = line.lower()
             if "realm=" in low:
@@ -731,46 +740,68 @@ def _start_indoor_station_register():
                 nonce_val = line.split("nonce=")[-1].split(",")[0].strip('"')
             if "opaque=" in low:
                 opaque_val = line.split("opaque=")[-1].split(",")[0].strip('"')
+            if "qop=" in low:
+                qop_val = line.split("qop=")[-1].split(",")[0].strip('"')
         if nonce_val:
-            # Compute proper Digest response using the doorbell's
-            # Registration Password (same as sip_password).
             import hashlib
+            uri = f"sip:{DOORBELL_IP}:5065"
             ha1 = hashlib.md5(
-                f"responder:{realm}:{INDOOR_STATION_PASSWORD}".encode()
+                f"{SIP_USERNAME}:{realm}:{INDOOR_STATION_PASSWORD}".encode()
             ).hexdigest()
             ha2 = hashlib.md5(
-                f"REGISTER:sip:{DOORBELL_IP}:5065".encode()
+                f"REGISTER:{uri}".encode()
             ).hexdigest()
-            response = hashlib.md5(
-                f"{ha1}:{nonce_val}:{ha2}".encode()
-            ).hexdigest()
-            auth = (
-                f'Authorization: Digest username="responder",'
-                f'realm="{realm}",'
-                f'nonce="{nonce_val}",'
-                f'uri="sip:{DOORBELL_IP}:5065",'
-                f'response="{response}",'
-                f'algorithm=MD5'
-            )
+            if qop_val:
+                nc = "00000001"
+                cnonce = ''.join(
+                    [random.choice('0123456789abcdef') for _ in range(32)]
+                )
+                resp_digest = hashlib.md5(
+                    f"{ha1}:{nonce_val}:{nc}:{cnonce}:{qop_val}:{ha2}"
+                ).hexdigest()
+                auth = (
+                    f"Authorization: Digest username=\"{SIP_USERNAME}\","
+                    f"realm=\"{realm}\","
+                    f"nonce=\"{nonce_val}\","
+                    f"uri=\"{uri}\","
+                    f"response=\"{resp_digest}\","
+                    f"cnonce=\"{cnonce}\","
+                    f"nc={nc},"
+                    f"qop=auth,"
+                    f"algorithm=MD5"
+                )
+            else:
+                resp_digest = hashlib.md5(
+                    f"{ha1}:{nonce_val}:{ha2}"
+                ).hexdigest()
+                auth = (
+                    f"Authorization: Digest username=\"{SIP_USERNAME}\","
+                    f"realm=\"{realm}\","
+                    f"nonce=\"{nonce_val}\","
+                    f"uri=\"{uri}\","
+                    f"response=\"{resp_digest}\","
+                    f"algorithm=MD5"
+                )
             if opaque_val:
-                auth += f',opaque="{opaque_val}"'
+                auth += f",opaque=\"{opaque_val}\""
             auth += "\r\n"
             resp2 = _send(_build_register(auth), expect_response=True)
             if resp2 and "200" in resp2:
                 print("Indoor station: registered successfully.")
             else:
-                print(f"Indoor station: registration response: {resp2[:200] if resp2 else 'timeout'}")
+                print(f"Indoor station: auth response: "
+                      f"{resp2[:200] if resp2 else 'timeout'}")
         else:
             print("Indoor station: no nonce in 401 challenge.")
     elif resp and "200" in resp:
         print("Indoor station: registered (no auth required).")
     else:
-        print(f"Indoor station: unexpected response: {resp[:200] if resp else 'timeout'}")
+        print(f"Indoor station: unexpected response: "
+              f"{resp[:200] if resp else 'timeout'}")
 
-    # Re-register periodically
-    print(f"Indoor station: will re-register every 900s")
+    print("Indoor station: re-registering every 600s")
     while True:
-        _time.sleep(900)
+        _time.sleep(600)
         try:
             _send(_build_register())
         except Exception:
