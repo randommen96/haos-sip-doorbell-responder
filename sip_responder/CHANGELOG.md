@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.68
+
+- Fix INVITE loop: outbound relay forwarding no longer waits for and
+  forwards responses, preventing infinite INVITE→500→retry cycle.
+
 ## 1.0.67
 
 - Fix relay: route outbound through SIP_DOMAIN (not 127.0.0.1) so relay
