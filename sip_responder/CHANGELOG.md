@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.70
+
+- Match Asterisk's REGISTER handling exactly: add opaque param to
+  WWW-Authenticate, set To tag to Via branch (not removed, not custom).
+  Nonce format now ts/md5hash matching Asterisk's build_nonce().
+
 ## 1.0.69
 
 - Fix WWW-Authenticate: add qop="auth" and proper random nonce matching
