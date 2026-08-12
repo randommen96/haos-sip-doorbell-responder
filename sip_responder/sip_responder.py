@@ -699,7 +699,8 @@ def _start_registrar_relay(relay_sock):
             _respond_register(data, addr)
         elif addr == pjsip_addr:
             # Outbound: PJSIP sends via proxy → relay forwards to doorbell.
-            # Parse destination from Request-URI.
+            # Parse destination from Request-URI, forward, skip response
+            # (SIP responses go directly to PJSIP via Via header).
             try:
                 parts = first_line.split(" ")
                 uri = parts[1] if len(parts) > 1 else ""
@@ -707,9 +708,7 @@ def _start_registrar_relay(relay_sock):
                 port = int(uri.rsplit(":", 1)[-1]) if ":" in uri.split("sip:")[-1] else 5060
                 if host:
                     relay_sock.sendto(data, (host, port))
-                    resp, _ = relay_sock.recvfrom(65535)
-                    relay_sock.sendto(resp, pjsip_addr)
-            except (_socket.timeout, IndexError, ValueError):
+            except (IndexError, ValueError):
                 pass
         else:
             # Inbound: doorbell → relay → PJSIP, forward response back.
