@@ -578,7 +578,7 @@ def process_outbound_requests():
     queue (latest message wins), starts a pending call once the line is
     free, and enforces the outbound answer timeout. All SIP operations
     stay on the main thread — pjsua2 is not thread-safe."""
-    global _outbound_job
+    global _outbound_job, _outbound_active, _outbound_call_id
 
     # Drain the queue, keeping only the most recent job.
     try:
