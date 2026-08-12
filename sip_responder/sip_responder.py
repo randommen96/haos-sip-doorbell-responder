@@ -44,9 +44,14 @@ import subprocess
 import requests
 import shutil
 import tempfile
+import queue
+import threading
 
 # Configuration loader — separate module for testability (no pjsua2 dep)
-from config import load_options, OPTIONS_PATH  # noqa: E402
+from config import (  # noqa: E402
+    load_options, OPTIONS_PATH,
+    normalize_sip_uri, retry_with_backoff,
+)
 
 cfg = load_options()
 
@@ -100,6 +105,17 @@ TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
 TTS_ENGINE = cfg["tts_engine"]
 TTS_VOICE = cfg.get("tts_voice", "")
 
+# MQTT trigger — outbound call feature
+MQTT_LISTEN_TOPIC = cfg.get("mqtt_listen_topic", "")
+OUTBOUND_SIP_URI = cfg.get("outbound_sip_uri", "")
+
+# TTS retry — exponential backoff for startup and on-demand generation
+TTS_RETRY_ENABLED = cfg.get("tts_retry_enabled", True)
+TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
+TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
+TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
+OUTBOUND_CALL_TIMEOUT = 30  # seconds without answer before we CANCEL
+
 # Supervisor-injected token — automatically available to all add-ons.
 # Used to call HA Core API via the internal proxy at http://supervisor/core/api/
 SUPERVISOR_TOKEN = _os.environ.get("SUPERVISOR_TOKEN", "")
@@ -120,6 +136,9 @@ def _on_mqtt_connect(client, userdata, flags, rc):
     if rc == 0:
         print("MQTT connected.")
         publish_mqtt_discovery()
+        if MQTT_LISTEN_TOPIC:
+            mqtt_client.subscribe(MQTT_LISTEN_TOPIC, qos=1)
+            print(f"MQTT subscribed: {MQTT_LISTEN_TOPIC} (outbound trigger)")
     elif rc == 5:
         print("MQTT connection refused: not authorized (rc=5).")
         print("  Configure mqtt_username and mqtt_password in the app settings.")
@@ -132,6 +151,7 @@ def _on_mqtt_disconnect(client, userdata, rc):
 
 mqtt_client.on_connect = _on_mqtt_connect
 mqtt_client.on_disconnect = _on_mqtt_disconnect
+mqtt_client.on_message = _on_mqtt_message
 
 
 def publish_mqtt_discovery():
@@ -163,6 +183,46 @@ def publish_mqtt_doorbell_state(state):
     payload = "ON" if state else "OFF"
     msg = mqtt_client.publish(DOORBELL_STATE_TOPIC, payload, qos=1)
     print(f"MQTT publish: {DOORBELL_STATE_TOPIC} = {payload} (rc={msg.rc})")
+
+
+def _on_mqtt_message(client, userdata, msg):
+    """Outbound trigger. Runs on paho's network thread — must NOT touch
+    pjsua2. Only thread-safe work here: parse payload, spawn a TTS worker
+    thread, and hand the result to the main thread via outbound_queue."""
+    if not MQTT_LISTEN_TOPIC:
+        return
+    if msg.retain:
+        print("MQTT: ignoring retained message (stale trigger).")
+        return
+    payload = msg.payload.decode("utf-8", errors="replace").strip()
+    if not payload:
+        print("MQTT: empty payload ignored.")
+        return
+    if not OUTBOUND_SIP_URI:
+        print("ERROR: outbound_sip_uri not configured — outbound call skipped.")
+        return
+    print(f"MQTT: outbound trigger: '{payload}'")
+    threading.Thread(target=_outbound_tts_worker, args=(payload,),
+                     daemon=True).start()
+
+
+def _outbound_tts_worker(message):
+    """Generate TTS for an outbound trigger, retrying with backoff. Runs in
+    a daemon thread; on success hands the audio to the main thread via the
+    queue. Never touches pjsua2 or the shared TTS cache file."""
+    if not SUPERVISOR_TOKEN:
+        print("ERROR: no SUPERVISOR_TOKEN — cannot generate outbound TTS.")
+        return
+    ulaw_path = retry_with_backoff(
+        lambda: _generate_outbound_audio(message),
+        f"Outbound TTS '{message[:30]}'",
+        TTS_RETRY_ENABLED, TTS_RETRY_INITIAL_DELAY,
+        TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
+    )
+    if ulaw_path:
+        outbound_queue.put({"message": message, "ulaw_path": ulaw_path})
+    else:
+        print(f"Outbound TTS failed — call skipped for: '{message}'")
 
 
 # ---------------------------------------------------------------------------
@@ -287,6 +347,49 @@ def generate_tts_audio():
     return False
 
 
+def _generate_outbound_audio(message):
+    """Fetch TTS for an outbound message and transcode to mu-law. Returns a
+    unique /tmp path or None. Thread-safe: every file it creates is derived
+    from a fresh NamedTemporaryFile, so concurrent workers never collide and
+    the shared startup cache (TTS_ULAW_PATH) is never touched."""
+    wav_path = fetch_tts_from_ha(message)
+    if not wav_path:
+        return None
+    try:
+        return transcode_to_ulaw(wav_path)
+    finally:
+        if os.path.exists(wav_path):
+            os.remove(wav_path)
+
+
+def remove_audio_file(path):
+    """Best-effort cleanup of a per-call audio file (any thread)."""
+    try:
+        if path and os.path.exists(path):
+            os.remove(path)
+    except OSError as e:
+        print(f"WARN: could not remove {path}: {e}")
+
+
+def _startup_tts_worker():
+    """Background startup TTS. Tries once immediately, then retries with
+    exponential backoff so Piper warm-up (add-on starts before Piper, HA
+    API routing, model loading) is covered. On success the cached mu-law
+    file simply exists — incoming calls detect it via the existing
+    os.path.exists() check in play_audio_in_call."""
+    if not SUPERVISOR_TOKEN and not os.path.exists(TTS_WAV_PATH):
+        print("ERROR: No TTS source (no SUPERVISOR_TOKEN, no pre-placed WAV).")
+        print("  Incoming calls will hang up without audio.")
+        return
+    ok = retry_with_backoff(
+        generate_tts_audio, "TTS",
+        TTS_RETRY_ENABLED, TTS_RETRY_INITIAL_DELAY,
+        TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
+    )
+    if not ok:
+        print("FATAL: No TTS audio available. App will answer calls but play silence.")
+
+
 # ---------------------------------------------------------------------------
 # SIP — PJSIP callbacks
 # ---------------------------------------------------------------------------
@@ -298,6 +401,68 @@ _active_calls = {}
 
 # Module-level endpoint reference for event processing during playback.
 _endpoint = None
+_account = None  # set by setup_sip_endpoint()
+
+# Outbound call state — all read/written only in the main thread.
+# pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
+# the main event loop drains the queue and places calls.
+outbound_queue = queue.Queue()  # items: {"message": str, "ulaw_path": str}
+_outbound_active = False
+_outbound_start_time = 0
+_outbound_call_id = None
+_outbound_job = None  # pending job waiting for line to free up
+
+
+def play_audio_in_call(call, ulaw_path):
+    """Play a mu-law WAV into an active call, then hang up. Main thread only.
+    Shared by incoming (DoorbellCall) and outbound (OutboundCall) calls."""
+    if getattr(call, "audio_played", False):
+        return
+    call.audio_played = True
+    if not os.path.exists(ulaw_path):
+        print(f"ERROR: Audio file missing: {ulaw_path}")
+        hangup_prm = pj.CallOpParam()
+        call.hangup(hangup_prm)
+        return
+
+    print(f"Playing: {ulaw_path}")
+    file_size = os.path.getsize(ulaw_path)
+    duration = file_size / 8000
+    print(f"  File: {file_size} bytes, ~{duration:.1f}s")
+
+    # Brief delay for conference ports to link. The doorbell's RTP
+    # stream is already negotiated, but the conference connection
+    # occasionally takes longer on some calls. 200ms ensures the
+    # first audio frames are never lost — even for sub-second messages.
+    deadline = time.time() + 0.2
+    while time.time() < deadline:
+        if _endpoint:
+            _endpoint.libHandleEvents(10)
+
+    try:
+        player = pj.AudioMediaPlayer()
+        player.createPlayer(ulaw_path, options=1)
+        call_media = call.getAudioMedia(-1)
+        player.startTransmit(call_media)
+    except pj.Error as e:
+        print(f"PJSIP playback error: {e}")
+        hangup_prm = pj.CallOpParam()
+        call.hangup(hangup_prm)
+        return
+
+    # Process events briefly so the conference connection completes
+    # before we start sleeping. Without this, short files (<3s) can
+    # miss the first ~100ms while ports are being connected.
+    deadline = time.time() + duration + 0.5
+    while time.time() < deadline:
+        if _endpoint:
+            _endpoint.libHandleEvents(50)
+        else:
+            time.sleep(0.05)
+
+    hangup_prm = pj.CallOpParam()
+    call.hangup(hangup_prm)
+    print("Hung up after playback.")
 
 
 class DoorbellAccount(pj.Account):
@@ -316,9 +481,17 @@ class DoorbellAccount(pj.Account):
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
         call_prm = pj.CallOpParam()
-        call_prm.statusCode = 200
+        if _outbound_active or len(_active_calls) > 1:
+            # This call is already in the dict, so len>1 means another
+            # call is in progress; _outbound_active gives the reason.
+            reason = "outbound call in progress" if _outbound_active \
+                     else "another call in progress"
+            call_prm.statusCode = 486
+            print(f"Busy ({reason}) — rejecting incoming call with 486.")
+        else:
+            call_prm.statusCode = 200
+            print("Call answered (200 OK).")
         call.answer(call_prm)
-        print("Call answered (200 OK).")
         return call
 
 
@@ -341,54 +514,97 @@ class DoorbellCall(pj.Call):
 
     def play_tts_audio(self):
         """Play cached mu-law audio into the active call."""
-        if self.audio_played:
-            return
-        if not os.path.exists(TTS_ULAW_PATH):
-            print(f"ERROR: Audio file missing: {TTS_ULAW_PATH}")
+        play_audio_in_call(self, TTS_ULAW_PATH)
+
+
+class OutboundCall(pj.Call):
+    """Outbound call triggered by an MQTT message. Plays the generated TTS
+    audio once CONFIRMED. Same GC-fix discipline as incoming calls: the
+    instance must be kept in _active_calls or pjsua2 abandons the call."""
+
+    def __init__(self, acc, ulaw_path):
+        pj.Call.__init__(self, acc, pj.PJSUA_INVALID_ID)
+        self.ulaw_path = ulaw_path
+        self.audio_played = False
+
+    def onCallState(self, prm):
+        state = self.getInfo().state
+        if state == pj.PJSIP_INV_STATE_CONFIRMED:
+            print("Outbound call confirmed. Playing TTS audio...")
+            play_audio_in_call(self, self.ulaw_path)
+        elif state == pj.PJSIP_INV_STATE_DISCONNECTED:
+            info = self.getInfo()
+            print(f"Outbound call disconnected. (last status: {info.lastStatusCode})")
+            _active_calls.pop(self.getId(), None)
+            global _outbound_active, _outbound_call_id
+            _outbound_active = False
+            _outbound_call_id = None
+            remove_audio_file(self.ulaw_path)
+
+
+# ---------------------------------------------------------------------------
+# Outbound call placement and main-loop processing
+# ---------------------------------------------------------------------------
+
+
+def start_outbound_call(job):
+    """Place the outbound call. Main thread only — called from
+    process_outbound_requests. Stores the call for the GC fix."""
+    global _outbound_active, _outbound_start_time, _outbound_call_id
+    uri = normalize_sip_uri(OUTBOUND_SIP_URI)
+    if not uri:
+        print("ERROR: outbound_sip_uri empty — outbound call skipped.")
+        remove_audio_file(job["ulaw_path"])
+        return
+    call = OutboundCall(_account, job["ulaw_path"])
+    call_prm = pj.CallOpParam()
+    try:
+        call.makeCall(uri, call_prm)
+    except pj.Error as e:
+        print(f"Outbound call error: {e}")
+        remove_audio_file(job["ulaw_path"])
+        return
+    _active_calls[call.getId()] = call  # GC fix applies to outbound too
+    _outbound_active = True
+    _outbound_start_time = time.time()
+    _outbound_call_id = call.getId()
+    print(f"Outbound call placed: {uri} (call id {call.getId()})")
+
+
+def process_outbound_requests():
+    """Called from the main loop every iteration. Drains the MQTT->main
+    queue (latest message wins), starts a pending call once the line is
+    free, and enforces the outbound answer timeout. All SIP operations
+    stay on the main thread — pjsua2 is not thread-safe."""
+    global _outbound_job
+
+    # Drain the queue, keeping only the most recent job.
+    try:
+        while True:
+            job = outbound_queue.get_nowait()
+            if _outbound_job is not None:
+                remove_audio_file(_outbound_job["ulaw_path"])  # superseded
+            _outbound_job = job
+    except queue.Empty:
+        pass
+
+    # Start the pending call once no call is in progress. An in-progress
+    # incoming call simply delays this; the check re-runs next iteration.
+    if _outbound_job is not None and not _active_calls:
+        job = _outbound_job
+        _outbound_job = None
+        start_outbound_call(job)
+
+    # Give up on unanswered outbound calls (doorbell never auto-answered).
+    if (_outbound_active
+            and time.time() - _outbound_start_time > OUTBOUND_CALL_TIMEOUT):
+        print("Outbound call timed out (no answer). Hanging up.")
+        print("  Check the doorbell's SIP auto-answer setting.")
+        call = _active_calls.get(_outbound_call_id)
+        if call:
             hangup_prm = pj.CallOpParam()
-            self.hangup(hangup_prm)
-            return
-
-        print(f"Playing: {TTS_ULAW_PATH}")
-        file_size = os.path.getsize(TTS_ULAW_PATH)
-        duration = file_size / 8000
-        print(f"  File: {file_size} bytes, ~{duration:.1f}s")
-
-        # Brief delay for conference ports to link. The doorbell's RTP
-        # stream is already negotiated, but the conference connection
-        # occasionally takes longer on some calls. 200ms ensures the
-        # first audio frames are never lost — even for sub-second messages.
-        deadline = time.time() + 0.2
-        while time.time() < deadline:
-            if _endpoint:
-                _endpoint.libHandleEvents(10)
-
-        try:
-            player = pj.AudioMediaPlayer()
-            player.createPlayer(TTS_ULAW_PATH, options=1)
-            call_media = self.getAudioMedia(-1)
-            player.startTransmit(call_media)
-        except pj.Error as e:
-            print(f"PJSIP playback error: {e}")
-            hangup_prm = pj.CallOpParam()
-            self.hangup(hangup_prm)
-            return
-
-        self.audio_played = True
-
-        # Process events briefly so the conference connection completes
-        # before we start sleeping. Without this, short files (<3s) can
-        # miss the first ~100ms while ports are being connected.
-        deadline = time.time() + duration + 0.5
-        while time.time() < deadline:
-            if _endpoint:
-                _endpoint.libHandleEvents(50)
-            else:
-                time.sleep(0.05)
-
-        hangup_prm = pj.CallOpParam()
-        self.hangup(hangup_prm)
-        print("Hung up after playback.")
+            call.hangup(hangup_prm)
+        _outbound_active = False
 
 
 # ---------------------------------------------------------------------------
@@ -429,8 +645,9 @@ def setup_sip_endpoint():
     acc = DoorbellAccount()
     acc.create(acfg)
     print(f"SIP account created: {acfg.idUri}")
-    global _endpoint
+    global _endpoint, _account
     _endpoint = ep
+    _account = acc
     return ep, acc
 
 
@@ -446,6 +663,14 @@ def main():
     mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
+    if MQTT_LISTEN_TOPIC:
+        uri_txt = OUTBOUND_SIP_URI or "(MISSING outbound_sip_uri!)"
+        print(f"  Outbound calls: enabled — topic '{MQTT_LISTEN_TOPIC}' -> {uri_txt}")
+    else:
+        print("  Outbound calls: disabled (mqtt_listen_topic empty)")
+    print(f"  TTS retry: {'enabled' if TTS_RETRY_ENABLED else 'disabled'} "
+          f"(attempts={'infinite' if TTS_RETRY_MAX_ATTEMPTS == 0 else TTS_RETRY_MAX_ATTEMPTS}, "
+          f"delay {TTS_RETRY_INITIAL_DELAY}s -> {TTS_RETRY_MAX_DELAY}s)")
 
     # 1. Connect MQTT — auto-discover HA built-in broker if not configured
     mqtt_host = MQTT_HOST
@@ -477,9 +702,9 @@ def main():
         print(f"MQTT connection failed: {e}")
         print("Continuing without MQTT — doorbell state will not be published.")
 
-    # 2. Generate TTS audio at startup
-    if not generate_tts_audio():
-        print("FATAL: No TTS audio available. App will answer calls but play silence.")
+    # 2. Generate TTS audio at startup — background thread with retry.
+    #    SIP startup is never blocked; Piper warm-up is covered by retries.
+    threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
     # 3. Start SIP endpoint
     ep, acc = setup_sip_endpoint()
@@ -488,10 +713,13 @@ def main():
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 
-    # 4. Event loop — with threadCnt=0, we must poll for SIP events
+    # 4. Event loop — with threadCnt=0, we must poll for SIP events.
+    #    Outbound requests are drained here (main thread) because pjsua2
+    #    is not thread-safe: MQTT callbacks only enqueue jobs.
     try:
         while True:
             ep.libHandleEvents(100)  # 100ms timeout, non-blocking poll
+            process_outbound_requests()
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:
