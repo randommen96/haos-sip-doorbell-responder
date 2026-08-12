@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.84
+
+- Restore relay-based SIP registrar approach. Indoor station XML
+  registration (1.0.80–1.0.83) confirmed not supported on KB8113
+  outdoor station (403 Forbidden). Relay handles REGISTER 401/200 OK
+  and forwards INVITEs from port 5060 with Via/Contact rewriting.
+
 ## 1.0.79
 
 - Rewrite Via sent-by in outbound INVITEs to port 5060 so the doorbell
