@@ -786,6 +786,9 @@ def _start_registrar_relay(relay_sock):
                                    f"@{host}:{port}".encode())
                 fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
                                   f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
+                # Also rewrite Via sent-by so the doorbell sees 5060.
+                fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
+                                  f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
                 print(f"Registrar relay: forwarding outbound to {host}:{port}")
                 print(f"  INVITE hex: {fwd.hex()}")
                 relay_sock.sendto(fwd, (host, int(port)))

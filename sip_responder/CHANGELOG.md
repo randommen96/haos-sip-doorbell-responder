@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.79
+
+- Rewrite Via sent-by in outbound INVITEs to port 5060 so the doorbell
+  sees the INVITE as coming through its registered SIP server.
+
 ## 1.0.78
 
 - Add full hex dump of forwarded INVITE to verify relay rewriting
