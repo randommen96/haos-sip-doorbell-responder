@@ -789,18 +789,6 @@ def _start_registrar_relay(relay_sock):
                 # Also rewrite Via sent-by so the doorbell sees 5060.
                 fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
                                   f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
-                # Add Record-Route so the INVITE looks like it came
-                # through the registered SIP server (matching Asterisk).
-                rr = f"Record-Route: <sip:{SIP_DOMAIN}:{SIP_PORT};lr>\r\n"
-                fwd = fwd.replace(b"Max-Forwards:",
-                                  rr.encode() + b"Max-Forwards:")
-                # Decrement Max-Forwards since the proxy consumed a hop.
-                import re
-                fwd = re.sub(
-                    b"Max-Forwards: (\\d+)",
-                    lambda m: b"Max-Forwards: " + str(int(m.group(1)) - 1).encode(),
-                    fwd
-                )
                 print(f"Registrar relay: forwarding outbound to {host}:{port}")
                 print(f"  INVITE hex: {fwd.hex()}")
                 relay_sock.sendto(fwd, (host, int(port)))
