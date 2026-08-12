@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.77
+
+- Fix missing \r\n on To header in REGISTER response f-string.
+  The original code never had it; the tag fix accidentally compensated
+  by adding \r\n to the tag string. When cleaned up, To merged with
+  Call-ID on the same line, breaking YATE's parser.
+
 ## 1.0.76
 
 - Fix double \r\n in Via/To headers that broke SIP message parsing.
