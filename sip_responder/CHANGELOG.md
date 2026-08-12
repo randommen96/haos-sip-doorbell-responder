@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.66
+
+- Fix relay forwarding: match on port (5061) not address — PJSIP sends
+  from real interface IP, not 127.0.0.1. Outbound INVITEs now forwarded.
+- Add Expires header to REGISTER 200 OK, parsed from doorbell request.
+  Reduced outbound call timeout to 15s.
+
 ## 1.0.65
 
 - Fix relay outbound forwarding: rewrite Contact and Via 127.0.0.1
