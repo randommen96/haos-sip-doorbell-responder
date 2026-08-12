@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.58
+
+- Enable PJSIP registrar module: respond 200 OK to doorbell REGISTER so
+  the KB8113 shows as Registered. May be required for auto-answer.
+
 ## 1.0.57
 
 - Rename default `sip_username` from `doorbell` to `responder` — fixes
