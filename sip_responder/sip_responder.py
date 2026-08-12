@@ -663,9 +663,11 @@ def setup_sip_endpoint():
     # reserved), one pair for the active call (inbound or outbound —
     # mutual exclusion guarantees only one at a time).
     acfg.mediaConfig.transportConfig.portRange = 2
-    # Session timers cause 32-second drops on KB8113 — its re-INVITE
-    # handling is broken (known YATE stack bug). Disable entirely.
-    acfg.callConfig.timerMinSESec = 0
+    # Session timers disabled: KB8113 YATE stack has broken re-INVITE
+    # handling (known 32-second drop from Asterisk community).  Set
+    # expires=0 and min=90 to pass PJSIP's internal assertion while
+    # still avoiding timer-triggered re-INVITEs.
+    acfg.callConfig.timerMinSESec = 90
     acfg.callConfig.timerSessExpiresSec = 0
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
