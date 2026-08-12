@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.75
+
+- Set received/rport in Via header of REGISTER responses per RFC 3581
+
 ## 1.0.74
 
 - Add hex dump of REGISTER 200 OK for byte-level comparison with Asterisk
