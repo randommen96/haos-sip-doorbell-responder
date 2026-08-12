@@ -151,7 +151,6 @@ def _on_mqtt_disconnect(client, userdata, rc):
 
 mqtt_client.on_connect = _on_mqtt_connect
 mqtt_client.on_disconnect = _on_mqtt_disconnect
-mqtt_client.on_message = _on_mqtt_message
 
 
 def publish_mqtt_discovery():
@@ -223,6 +222,9 @@ def _outbound_tts_worker(message):
         outbound_queue.put({"message": message, "ulaw_path": ulaw_path})
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
+
+
+mqtt_client.on_message = _on_mqtt_message
 
 
 # ---------------------------------------------------------------------------
