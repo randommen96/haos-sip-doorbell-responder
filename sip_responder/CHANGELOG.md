@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.62
+
+- Route outbound SIP through relay (proxy) so INVITEs appear from
+  port 5060 where the doorbell registered, not PJSIP's port 5061.
+- Relay now handles bidirectional forwarding and outbound proxy.
+
 ## 1.0.61
 
 - Fix registrar relay: bind UDP socket synchronously in main thread
