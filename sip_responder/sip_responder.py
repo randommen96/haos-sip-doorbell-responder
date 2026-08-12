@@ -696,7 +696,7 @@ def _start_registrar_relay(relay_sock):
             f"SIP/2.0 {code} {phrase}\r\n"
             f"{via}\r\n"
             f"{from_h}\r\n"
-            f"{to_h}"
+            f"{to_h}\r\n"
             f"{call_id}\r\n"
             f"CSeq: {cseq_num} REGISTER\r\n"
         )
