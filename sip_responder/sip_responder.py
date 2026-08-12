@@ -670,6 +670,13 @@ def setup_sip_endpoint():
     # The KB8113 YATE stack has broken re-INVITE handling.
     acfg.callConfig.timerMinSESec = 90
     acfg.callConfig.timerSessExpiresSec = 3600
+    # Accept the doorbell's REGISTER by enabling the registrar module.
+    # The KB8113 may require a 200 OK response before it auto-answers
+    # incoming calls.  Setting registerEnabled loads the registrar even
+    # though we register with ourselves (harmless — just enables the
+    # server-side handler for incoming REGISTER requests).
+    acfg.regConfig.registerEnabled = True
+    acfg.regConfig.registrarUri = f"sip:{SIP_DOMAIN}:{SIP_PORT}"
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
 
