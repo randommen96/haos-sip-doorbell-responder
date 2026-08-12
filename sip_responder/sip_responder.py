@@ -492,12 +492,13 @@ class DoorbellAccount(pj.Account):
         publish_mqtt_doorbell_state(True)
 
         # Learn the doorbell's SIP URI for outbound calls.
-        # remoteUri is the doorbell's own address
-        # (e.g. "sip:doorbell@192.168.1.50:5060").
+        # Use remoteContact (the Contact header) — that's the doorbell's
+        # actual reachable address.  remoteUri is the From header which
+        # carries the SIP identity with our domain, not the doorbell's IP.
         global _discovered_doorbell_uri
         info = call.getInfo()
-        if info.remoteUri and not _discovered_doorbell_uri:
-            _discovered_doorbell_uri = info.remoteUri
+        if info.remoteContact and not _discovered_doorbell_uri:
+            _discovered_doorbell_uri = info.remoteContact
             print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
