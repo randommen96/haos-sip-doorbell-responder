@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.63
+
+- Remove registrar relay and outbound proxy: py3-pjsua bindings lack both
+  `pjsip_registrar_create` and `proxyConfig`. Back to PJSIP on 5060.
+
 ## 1.0.62
 
 - Route outbound SIP through relay (proxy) so INVITEs appear from
