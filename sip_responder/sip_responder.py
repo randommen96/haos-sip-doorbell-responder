@@ -727,7 +727,7 @@ def _start_registrar_relay(relay_sock):
             resp = _build_response(data, 200, "OK")
             if resp:
                 print(f"Registrar relay: 200 OK (registered) from {addr}")
-                print(f"  Response: {resp.decode()[:300]}")
+                print(f"  Response: {resp.decode()}")
                 relay_sock.sendto(resp, addr)
         else:
             # First REGISTER without auth: challenge.
