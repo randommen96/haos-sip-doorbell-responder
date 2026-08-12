@@ -659,7 +659,9 @@ def setup_sip_endpoint():
     # No self-registration — the GC fix (store Call objects) was the
     # real 603 fix. Registration adds 408 timeout noise on every cycle.
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
-    acfg.mediaConfig.transportConfig.portRange = 1
+    # Port range for RTP/RTCP pairs. Needs at least 2 pairs: one for
+    # the account (always reserved) and one for outbound calls.
+    acfg.mediaConfig.transportConfig.portRange = 4
     acfg.videoConfig.autoShowIncoming = False
     acfg.videoConfig.autoTransmitOutgoing = False
     acfg.videoConfig.autoTransmitOutgoing = False
