@@ -46,6 +46,7 @@ import shutil
 import tempfile
 import queue
 import threading
+import socket as _socket
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
     load_options, OPTIONS_PATH,
@@ -409,6 +410,11 @@ _account = None  # set by setup_sip_endpoint()
 # outbound_sip_uri when the user hasn't configured one explicitly.
 _discovered_doorbell_uri = None
 
+# PJSIP runs on SIP_PORT + 1 — the registrar relay binds SIP_PORT.
+_SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
+# Doorbell IP:port for relay outbound forwarding.
+_doorbell_addr = None
+
 # Outbound call state — all read/written only in the main thread.
 # pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
 # the main event loop drains the queue and places calls.
@@ -495,10 +501,11 @@ class DoorbellAccount(pj.Account):
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
-        global _discovered_doorbell_uri
+        global _discovered_doorbell_uri, _doorbell_addr
         info = call.getInfo()
         if info.remoteContact and not _discovered_doorbell_uri:
             _discovered_doorbell_uri = info.remoteContact
+            _doorbell_addr = info.remoteContact
             print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
@@ -571,9 +578,18 @@ def start_outbound_call(job):
     """Place the outbound call. Main thread only — called from
     process_outbound_requests. Stores the call for the GC fix."""
     # Resolve URI: explicit config > auto-discovered from incoming call
-    uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
+    real_uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
         _discovered_doorbell_uri or ""
     )
+    # Cache doorbell address for relay forwarding.
+    global _doorbell_addr
+    _doorbell_addr = real_uri
+
+    # Route through the relay on SIP_PORT so the INVITE appears from
+    # port 5060 (where the doorbell registered).  The relay rewrites
+    # the destination from 127.0.0.1:5060 to the doorbell's real address.
+    uri = f"sip:{DOORBELL_NUMBER}@127.0.0.1:{SIP_PORT}" if real_uri else ""
+
     if not uri:
         print("ERROR: no outbound SIP URI — configure outbound_sip_uri"
               " or wait for a doorbell ring to auto-discover it.")
@@ -630,6 +646,102 @@ def process_outbound_requests():
 
 
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Registrar relay — handles REGISTER + outbound forwarding
+# ---------------------------------------------------------------------------
+
+
+def _start_registrar_relay(relay_sock):
+    """UDP relay daemon on SIP_PORT.  Intercepts REGISTER with proper
+    200 OK (echoing Contact with expires), forwards everything else
+    bidirectionally between doorbell and PJSIP on _SIP_REGISTRAR_PORT.
+    Outbound calls are routed through here so INVITEs come from 5060."""
+    import time as _time
+    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
+
+    def _respond_register(data, addr):
+        lines = data.decode("utf-8", errors="replace").split("\r\n")
+        via = from_h = to_h = call_id = cseq = contact = ""
+        for line in lines:
+            low = line.lower()
+            if low.startswith("via:"):
+                via = line
+            elif low.startswith("from:"):
+                from_h = line
+            elif low.startswith("to:"):
+                to_h = line
+            elif low.startswith("call-id:"):
+                call_id = line
+            elif low.startswith("cseq:"):
+                cseq = line
+            elif low.startswith("contact:"):
+                contact = line.strip()
+        if not all([via, from_h, to_h, call_id, cseq]):
+            return
+        if "tag=" not in to_h:
+            to_h = to_h.rstrip() + ";tag=registrar\r\n"
+        cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
+        resp = (
+            f"SIP/2.0 200 OK\r\n"
+            f"{via}\r\n"
+            f"{from_h}\r\n"
+            f"{to_h}"
+            f"{call_id}\r\n"
+            f"CSeq: {cseq_num} REGISTER\r\n"
+        )
+        if contact:
+            resp += f"{contact};expires=3600\r\n"
+        resp += (
+            f"Date: {_time.strftime('%a, %d %b %Y %H:%M:%S GMT', _time.gmtime())}\r\n"
+            f"Content-Length: 0\r\n\r\n"
+        )
+        relay_sock.sendto(resp.encode(), addr)
+
+    print(f"Registrar relay active on {SIP_DOMAIN}:{SIP_PORT}"
+          f" <-> PJSIP on {pjsip_addr}")
+    while True:
+        try:
+            data, addr = relay_sock.recvfrom(65535)
+        except _socket.timeout:
+            continue
+        except OSError:
+            break
+        if not data:
+            continue
+        first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
+        if first_line.startswith("REGISTER"):
+            print(f"Registrar relay: 200 OK to REGISTER from {addr}")
+            _respond_register(data, addr)
+        elif addr == pjsip_addr:
+            # Outbound: PJSIP -> relay -> doorbell.
+            # Rewrite 127.0.0.1:5060 to the doorbell's real address.
+            global _doorbell_addr
+            target = _doorbell_addr or (
+                normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
+            )
+            if target:
+                host = target.replace("sip:", "").split("@")[-1].split(":")[0] \
+                    if "@" in target else target.replace("sip:", "").split(":")[0]
+                port = target.split(":")[-1] if ":" in target.split("@")[-1] else "5060"
+                fwd = data.replace(b"@127.0.0.1:5060",
+                                   f"@{host}:{port}".encode())
+                relay_sock.sendto(fwd, (host, int(port)))
+                try:
+                    resp, _ = relay_sock.recvfrom(65535)
+                    relay_sock.sendto(resp, pjsip_addr)
+                except _socket.timeout:
+                    pass
+        else:
+            # Inbound: doorbell -> relay -> PJSIP
+            try:
+                relay_sock.sendto(data, pjsip_addr)
+                resp, _ = relay_sock.recvfrom(65535)
+                relay_sock.sendto(resp, addr)
+            except _socket.timeout:
+                pass
+
+
 # SIP endpoint setup
 # ---------------------------------------------------------------------------
 
@@ -648,8 +760,9 @@ def setup_sip_endpoint():
     ep.libCreate()
     ep.libInit(ep_cfg)
 
+    # PJSIP on SIP_PORT+1 — relay on SIP_PORT handles REGISTER + forwarding.
     sip_tp_config = pj.TransportConfig()
-    sip_tp_config.port = SIP_PORT
+    sip_tp_config.port = _SIP_REGISTRAR_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
@@ -739,14 +852,23 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Start SIP endpoint
+    # 3. Bind registrar relay on SIP_PORT before PJSIP starts.
+    relay_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
+    relay_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
+    relay_sock.bind((SIP_DOMAIN, SIP_PORT))
+    relay_sock.settimeout(1.0)
+    print(f"Registrar relay bound to {SIP_DOMAIN}:{SIP_PORT}")
+    threading.Thread(target=_start_registrar_relay, args=(relay_sock,),
+                     daemon=True).start()
+
+    # 4. Start SIP endpoint on the relay-forwarding port.
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
     print("Waiting for doorbell rings...")
 
-    # 4. Event loop — with threadCnt=0, we must poll for SIP events.
+    # 5. Event loop — with threadCnt=0, we must poll for SIP events.
     #    Outbound requests are drained here (main thread) because pjsua2
     #    is not thread-safe: MQTT callbacks only enqueue jobs.
     try:
