@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.76
+
+- Fix double \r\n in Via/To headers that broke SIP message parsing.
+  Via rport fix was adding \r\n to a string that already gets \r\n
+  in the f-string, creating an empty line after Via. YATE couldn't
+  parse the response — To, Call-ID, Contact, Expires became body text.
+
 ## 1.0.75
 
 - Set received/rport in Via header of REGISTER responses per RFC 3581
