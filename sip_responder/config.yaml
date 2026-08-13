@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.99"
+version: "1.0.100"
 slug: "sip_responder"
 url: "https://github.com/randommen96/haos-sip-doorbell-responder"
 documentation: "https://github.com/randommen96/haos-sip-doorbell-responder/blob/main/README.md"

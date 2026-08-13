@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.100
+
+- Fix startup TTS temp-file leak: downloaded .audio file is now removed
+  when the transcode fails (previously kept), and partial _ulaw.wav from
+  a failed ffmpeg run is removed too.
+- Drop redundant post-playback wait in the outbound worker: audio is
+  fully streamed at real-time pace before play_audio_via_isapi returns.
+
 ## 1.0.99
 
 - Cleanup: removed dead options (`sip_password`, `sip_display_name`,

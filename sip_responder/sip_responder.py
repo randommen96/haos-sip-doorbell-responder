@@ -204,12 +204,11 @@ def _outbound_tts_worker(message):
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
     )
     if ulaw_path:
-        # Play directly on the doorbell speaker via ISAPI.
+        # Play directly on the doorbell speaker via ISAPI. The file is
+        # fully read into memory before streaming and playback is paced
+        # in real time inside play_audio_via_isapi, so it can be removed
+        # as soon as it returns.
         play_audio_via_isapi(ulaw_path)
-        # Give playback time to finish before cleaning up.
-        import time as _time
-        file_size = os.path.getsize(ulaw_path)
-        _time.sleep(file_size / 8000 + 2)
         remove_audio_file(ulaw_path)
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
@@ -305,6 +304,12 @@ def transcode_to_ulaw(wav_path):
     )
     if result.returncode != 0:
         print(f"ffmpeg error: {result.stderr.decode()}")
+        # ffmpeg may leave a partial output file on failure.
+        try:
+            if os.path.exists(ulaw_path):
+                os.remove(ulaw_path)
+        except OSError:
+            pass
         return None
     print(f"Transcoded: {wav_path} -> {ulaw_path}")
     return ulaw_path
@@ -316,12 +321,14 @@ def generate_tts_audio():
         print(f"Generating TTS via HA API: '{TTS_MESSAGE}'")
         wav_path = fetch_tts_from_ha(TTS_MESSAGE)
         if wav_path:
-            ulaw_path = transcode_to_ulaw(wav_path)
-            if ulaw_path:
-                shutil.move(ulaw_path, TTS_ULAW_PATH)
-                os.remove(wav_path)
-                print(f"TTS ready: {TTS_ULAW_PATH}")
-                return True
+            try:
+                ulaw_path = transcode_to_ulaw(wav_path)
+                if ulaw_path:
+                    shutil.move(ulaw_path, TTS_ULAW_PATH)
+                    print(f"TTS ready: {TTS_ULAW_PATH}")
+                    return True
+            finally:
+                remove_audio_file(wav_path)
 
     # Fallback: use pre-placed file
     if os.path.exists(TTS_ULAW_PATH):
@@ -804,7 +811,7 @@ def main():
     print(f"TTS: {mode} | Message: '{TTS_MESSAGE}'")
     print("Waiting for doorbell rings...")
 
-    # 5. Event loop — with threadCnt=0, we must poll for SIP events.
+    # 4. Event loop — with threadCnt=0, we must poll for SIP events.
     try:
         while True:
             ep.libHandleEvents(100)  # 100ms timeout, non-blocking poll
