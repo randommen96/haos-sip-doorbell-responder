@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.90
+
+- Major rework: removed SIP relay (200 lines) — PJSIP back on 5060.
+- Outbound TTS now plays directly on the doorbell speaker via embedded
+  go2rtc ISAPI backchannel (no SIP call needed). Enable with
+  go2rtc_enabled + doorbell_admin_password.
+- New options: go2rtc_enabled, doorbell_admin_username,
+  doorbell_admin_password, go2rtc_port.
+- Embedded go2rtc v1.9.14 binary (amd64/arm64).
+
 ## 1.0.89
 
 - Fix Supervisor warnings: remove deprecated arch values (armhf, armv7,
