@@ -528,6 +528,93 @@ class DoorbellCall(pj.Call):
 
 
 
+# go2rtc — ISAPI two-way audio playback for outbound TTS
+# ---------------------------------------------------------------------------
+
+
+def _start_go2rtc():
+    """Start the go2rtc subprocess with the doorbell ISAPI stream config.
+    Runs in a daemon thread — logs go2rtc output to our stdout."""
+    global _go2rtc_proc
+    if not GO2RTC_ENABLED:
+        print("go2rtc: disabled (go2rtc_enabled=false)")
+        return
+    if not DOORBELL_ADMIN_PASSWORD:
+        print("go2rtc: ERROR - doorbell_admin_password not configured")
+        return
+
+    doorbell_ip = DOORBELL_IP_FOR_GO2RTC()
+    if not doorbell_ip:
+        print("go2rtc: ERROR - cannot determine doorbell IP. Configure"
+              " doorbell_ip or wait for a doorbell ring.")
+        return
+
+    config = (
+        "log:\n"
+        "  level: info\n"
+        "api:\n"
+        f"  listen: :{GO2RTC_PORT}\n"
+        "rtsp:\n"
+        "  listen: :8554\n"
+        "streams:\n"
+        f"  doorbell: isapi://{DOORBELL_ADMIN_USERNAME}:{DOORBELL_ADMIN_PASSWORD}@{doorbell_ip}:80/\n"
+    )
+    config_path = "/tmp/go2rtc.yaml"
+    with open(config_path, "w") as f:
+        f.write(config)
+    try:
+        _go2rtc_proc = subprocess.Popen(
+            ["/usr/local/bin/go2rtc", "-config", config_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+        )
+    except Exception as e:
+        print(f"go2rtc: failed to start: {e}")
+        return
+    print(f"go2rtc: started with ISAPI stream for doorbell at {doorbell_ip}")
+    for line in _go2rtc_proc.stdout:
+        line = line.strip()
+        if line:
+            print(f"go2rtc: {line}")
+
+
+def DOORBELL_IP_FOR_GO2RTC():
+    """Resolve the doorbell IP from config or auto-discovery."""
+    if DOORBELL_IP:
+        return DOORBELL_IP.strip()
+    uri = normalize_sip_uri(_discovered_doorbell_uri or "")
+    if not uri:
+        return ""
+    uri = uri.strip("<>").replace("sip:", "")
+    if "@" in uri:
+        return uri.split("@")[1].split(":")[0]
+    return uri.split(":")[0]
+
+
+def play_audio_via_go2rtc(ulaw_path):
+    """Play a mu-law WAV on the doorbell speaker via go2rtc ISAPI."""
+    try:
+        resp = requests.post(
+            f"http://127.0.0.1:{GO2RTC_PORT}/api/streams",
+            params={
+                "dst": "doorbell",
+                "src": f"ffmpeg:{ulaw_path}#audio=pcma#input=file",
+            },
+            timeout=5,
+        )
+        if resp.status_code == 200:
+            print(f"go2rtc: playback started for {ulaw_path}")
+            return True
+        else:
+            print(f"go2rtc: playback failed: HTTP {resp.status_code}: "
+                  f"{resp.text[:200]}")
+            return False
+    except requests.RequestException as e:
+        print(f"go2rtc: playback request error: {e}")
+        return False
+
+
 # SIP endpoint setup
 # ---------------------------------------------------------------------------
 
