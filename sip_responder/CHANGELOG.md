@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.95
+
+- Extract raw PCMU via ffmpeg (-f mulaw) for ISAPI playback. Avoids
+  Python wave module's inability to read G.711 mu-law format tag.
+
 ## 1.0.94
 
 - Fix ISAPI 401: use Digest authentication (Hikvision rejects Basic).
