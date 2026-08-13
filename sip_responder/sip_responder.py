@@ -576,25 +576,23 @@ def play_audio_via_isapi(ulaw_path):
         print(f"ISAPI: channel discovery error: {e}")
         return False
 
-    # 2. Extract raw PCMU samples from the WAV. Python's wave module
-    #    can't read format 7 (mu-law), so parse the RIFF chunks manually.
+    # 2. Transcode the WAV to raw PCMU bytes (ffmpeg, no WAV container —
+    #    Python's wave module can't read mu-law format tag 7).
+    raw_path = ulaw_path + ".raw"
+    result = subprocess.run(
+        ["ffmpeg", "-y", "-i", ulaw_path, "-f", "mulaw",
+         "-ar", "8000", "-ac", "1", raw_path],
+        capture_output=True,
+    )
+    if result.returncode != 0:
+        print(f"ISAPI: raw transcode error: {result.stderr.decode()[:200]}")
+        return False
     try:
-        with open(ulaw_path, "rb") as f:
-            data = f.read()
-        # Find the "data" chunk: skip RIFF header + variable chunks.
-        pos = 12  # "RIFF" + size + "WAVE"
-        while pos + 8 <= len(data):
-            chunk_id = data[pos:pos + 4]
-            chunk_size = int.from_bytes(data[pos + 4:pos + 8], "little")
-            if chunk_id == b"data":
-                pcmu = data[pos + 8:pos + 8 + chunk_size]
-                break
-            pos += 8 + chunk_size + (chunk_size % 2)  # chunks are word-aligned
-        else:
-            print("ISAPI: no data chunk found in WAV")
-            return False
+        with open(raw_path, "rb") as f:
+            pcmu = f.read()
+        os.remove(raw_path)
     except OSError as e:
-        print(f"ISAPI: WAV read error: {e}")
+        print(f"ISAPI: raw file read error: {e}")
         return False
 
     # 3. Open the audio channel, stream the audio, close.
