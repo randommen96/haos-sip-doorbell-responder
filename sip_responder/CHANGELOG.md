@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.96
+
+- Fix ISAPI playback reliability: close-before-open (Hikvision channels
+  get stuck) and real-time audio streaming in 100ms chunks instead of
+  a single burst that overran the device buffer.
+
 ## 1.0.95
 
 - Extract raw PCMU via ffmpeg (-f mulaw) for ISAPI playback. Avoids
