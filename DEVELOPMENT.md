@@ -18,7 +18,8 @@
 │   ├── DOCS.md                   In-app documentation
 │   └── CHANGELOG.md              Version history
 └── tests/
-    └── test_config.py            Unit tests for config loading
+    ├── test_config.py            Unit tests for config loading
+    └── test_audio.py             Transcode/URL/discovery payload checks
 ```
 
 ## Building Locally

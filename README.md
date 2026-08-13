@@ -107,7 +107,7 @@ The default `log_level: 1` (ERROR) suppresses all PJSIP noise except actual erro
    - `SIP: doorbell@<ip>:5060`
    - `TTS: '...' [API]`
    - `Generating TTS via HA API: '...'`
-   - `TTS ready: /tmp/doorbell_message.ulaw`
+   - `TTS ready: /tmp/doorbell_message_ulaw.wav`
    - `SIP ready: doorbell@<ip>:5060`
    - `Waiting for doorbell rings...`
 
@@ -118,7 +118,7 @@ The default `log_level: 1` (ERROR) suppresses all PJSIP noise except actual erro
    - `Doorbell button pressed! Publishing event...`
    - `Call answered (200 OK).`
    - `Call confirmed. Playing TTS audio...`
-   - `Playing: /tmp/doorbell_message.ulaw`
+   - `Playing: /tmp/doorbell_message_ulaw.wav`
    - `Hung up after playback.`
    - `Call disconnected.`
 3. The doorbell should speak your message, then hang up

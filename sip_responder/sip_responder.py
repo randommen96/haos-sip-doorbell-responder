@@ -21,9 +21,9 @@ def _ts_print(*args, **kwargs):
 _bi.print = _ts_print
 
 # Suppress PulseAudio/JACK client connection noise in headless container.
-# ALSA noise (~60 lines of card scan / virtual PCM spam) is harmless
-# and we cannot safely suppress it (ctypes ALSA error handler causes
-# segfaults on some platforms due to va_list ABI mismatch).
+# The ALSA card-scan noise is silenced at the system level by
+# /etc/asound.conf in the Dockerfile (every PCM in PortAudio's fallback
+# list maps to null — a simple 'default' override is not enough).
 import os as _os
 _os.environ.setdefault("PULSE_SERVER", "none")
 _os.environ.setdefault("JACK_NO_START_SERVER", "1")
@@ -414,6 +414,7 @@ def play_audio_in_call(call, ulaw_path):
     call.audio_played = True
     if not os.path.exists(ulaw_path):
         print(f"ERROR: Audio file missing: {ulaw_path}")
+        call.hung_up_at = time.time()
         hangup_prm = pj.CallOpParam()
         call.hangup(hangup_prm)
         return
@@ -439,6 +440,7 @@ def play_audio_in_call(call, ulaw_path):
         player.startTransmit(call_media)
     except pj.Error as e:
         print(f"PJSIP playback error: {e}")
+        call.hung_up_at = time.time()
         hangup_prm = pj.CallOpParam()
         call.hangup(hangup_prm)
         return
@@ -466,19 +468,13 @@ def play_audio_in_call(call, ulaw_path):
         if _endpoint:
             _endpoint.libHandleEvents(10)
 
+    call.hung_up_at = time.time()
     hangup_prm = pj.CallOpParam()
     call.hangup(hangup_prm)
     print("Hung up after playback.")
 
 
 class DoorbellAccount(pj.Account):
-    def onRegState(self, prm):
-        if prm.code == 200:
-            print("SIP registration OK — doorbell can now connect.")
-        # 408 = self-registration timeout: normal, no registrar module.
-        # The registration still adds our URI to the location table,
-        # which is needed for incoming INVITE matching. Don't log noise.
-
     def onIncomingCall(self, prm):
         call = DoorbellCall(self, prm.callId)
         # Store to prevent Python GC. The pjsua2 docs warn: if a Call
@@ -491,18 +487,24 @@ class DoorbellAccount(pj.Account):
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
+        # Re-learn on every ring so a doorbell DHCP change is picked up
+        # without an add-on restart.
         global _discovered_doorbell_uri
         info = call.getInfo()
-        if info.remoteContact and not _discovered_doorbell_uri:
+        if info.remoteContact and info.remoteContact != _discovered_doorbell_uri:
             _discovered_doorbell_uri = info.remoteContact
             print(f"Doorbell address discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
-        if len(_active_calls) > 1:
-            # This call is already in the dict, so len>1 means another
-            # call is in progress.
+        # Busy if any other call is still active. A call released by the
+        # watchdog (no BYE response within 30s of hangup) no longer
+        # blocks new rings.
+        busy = any(c is not call and not getattr(c, "expired", False)
+                   for c in _active_calls.values())
+        if busy:
             call_prm.statusCode = 486
             print("Busy (another call in progress) — rejecting with 486.")
+            call.hung_up_at = time.time()
         else:
             call_prm.statusCode = 200
             print("Call answered (200 OK).")
@@ -514,13 +516,26 @@ class DoorbellCall(pj.Call):
     def __init__(self, acc, call_id):
         pj.Call.__init__(self, acc, call_id)
         self.audio_played = False
+        # Watchdog state: hung_up_at is set when we (try to) end the
+        # call; expired is set when the doorbell never answered the BYE
+        # within 30s and the call slot is released.
+        self.hung_up_at = None
+        self.expired = False
 
     def onCallState(self, prm):
         state = self.getInfo().state
 
         if state == pj.PJSIP_INV_STATE_CONFIRMED:
             print("Call confirmed. Playing TTS audio...")
-            self.play_tts_audio()
+            try:
+                self.play_tts_audio()
+            except Exception as e:
+                # Unexpected playback failure: end the call so the
+                # watchdog can release the slot.
+                print(f"ERROR: playback failed: {e}")
+                self.hung_up_at = time.time()
+                hangup_prm = pj.CallOpParam()
+                self.hangup(hangup_prm)
 
         elif state == pj.PJSIP_INV_STATE_DISCONNECTED:
             print("Call disconnected.")
@@ -758,7 +773,9 @@ def main():
     print(f"Config loaded from {OPTIONS_PATH}")
     print(f"  SIP: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
     print(f"  PJSIP log level: {LOG_LEVEL} (0=fatal, 5=verbose)")
-    mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
+    # Label matches the connect logic below: configured credentials take
+    # the manual path, everything else attempts discovery.
+    mqtt_src = "auto" if not MQTT_USERNAME else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}'" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
     if MQTT_LISTEN_TOPIC:
@@ -813,9 +830,24 @@ def main():
     print("Waiting for doorbell rings...")
 
     # 4. Event loop — with threadCnt=0, we must poll for SIP events.
+    last_watchdog = time.time()
     try:
         while True:
             ep.libHandleEvents(100)  # 100ms timeout, non-blocking poll
+            now = time.time()
+            if now - last_watchdog >= 5:
+                last_watchdog = now
+                for call in list(_active_calls.values()):
+                    if (not getattr(call, "expired", False)
+                            and getattr(call, "hung_up_at", None)
+                            and now - call.hung_up_at > 30):
+                        # Doorbell never answered the BYE (dead/rebooted
+                        # mid-call). Release the slot so new rings are
+                        # answered; pjsua's session timer terminates the
+                        # zombie dialog eventually.
+                        call.expired = True
+                        print("Call watchdog: no BYE response within 30s — "
+                              "releasing call slot for new rings.")
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:

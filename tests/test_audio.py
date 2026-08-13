@@ -1,5 +1,6 @@
 """Tests for audio transcoding and duration calculation."""
 import os
+import shutil
 import sys
 import subprocess
 import tempfile
@@ -16,7 +17,7 @@ def test_duration_calculation():
 
 def test_transcode_creates_valid_wav():
     """ffmpeg creates a transcode WAV with pcm_mulaw codec."""
-    if not shutil_which("ffmpeg"):
+    if not shutil.which("ffmpeg"):
         return  # skip if ffmpeg not installed
 
     # Create a test MP3 (Piper outputs MP3)
@@ -59,12 +60,6 @@ def test_tts_url_parsing_absolute():
         # Verify download URL construction
         download_url = f"http://supervisor/core{path}"
         assert download_url.startswith("http://supervisor/core/api/tts_proxy/")
-
-
-def shutil_which(name):
-    """Backport of shutil.which for older Python."""
-    import shutil
-    return shutil.which(name)
 
 
 def test_mqtt_discovery_payload():

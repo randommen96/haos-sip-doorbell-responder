@@ -1,5 +1,16 @@
 # Changelog
 
+## 1.0.102
+
+- Stale call watchdog: if the doorbell never answers our BYE (power
+  cut / reboot mid-call), the call slot is released 30s after hangup
+  so new rings are answered instead of getting 486 busy.
+- Doorbell address re-learned on every ring — ISAPI outbound keeps
+  working after a doorbell DHCP change without an add-on restart.
+- Cleanup: removed dead onRegState callback, stale ALSA comment,
+  README audio paths, DEVELOPMENT.md tree entry, test helper backport,
+  and fixed the MQTT source label logic.
+
 ## 1.0.101
 
 - RTP: reduced port range from two pairs to one (4000-4001). Verified the
