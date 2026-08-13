@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.97
+
+- ISAPI: don't wait for audioData response — the doorbell streams audio
+  but only responds when the connection closes. Audio sent in background
+  thread, channel closed after playback duration.
+
 ## 1.0.96
 
 - Fix ISAPI playback reliability: close-before-open (Hikvision channels
