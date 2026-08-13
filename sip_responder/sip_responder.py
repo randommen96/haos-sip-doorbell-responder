@@ -409,6 +409,8 @@ _account = None  # set by setup_sip_endpoint()
 # Doorbell SIP URI discovered from incoming calls — used as the default
 # outbound_sip_uri when the user hasn't configured one explicitly.
 _discovered_doorbell_uri = None
+_doorbell_ip = ""
+_doorbell_port = 5060
 
 # PJSIP runs on SIP_PORT + 1 — the registrar relay binds SIP_PORT.
 _SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
@@ -501,11 +503,17 @@ class DoorbellAccount(pj.Account):
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
-        global _discovered_doorbell_uri, _doorbell_addr
+        global _discovered_doorbell_uri, _doorbell_addr, _doorbell_ip, _doorbell_port
         info = call.getInfo()
         if info.remoteContact and not _discovered_doorbell_uri:
             _discovered_doorbell_uri = info.remoteContact
             _doorbell_addr = info.remoteContact
+            uri = info.remoteContact.strip("<>").replace("sip:", "")
+            if "@" in uri:
+                host_port = uri.split("@")[1]
+                _doorbell_ip = host_port.split(":")[0]
+                if ":" in host_port:
+                    _doorbell_port = int(host_port.split(":")[1])
             print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
@@ -766,42 +774,51 @@ def _start_registrar_relay(relay_sock):
             break
         if not data:
             continue
-        first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
-        if first_line.startswith("REGISTER"):
-            _handle_register(data, addr)
-        elif addr[1] == _SIP_REGISTRAR_PORT:  # from PJSIP on port 5061
-            # Outbound: PJSIP -> relay -> doorbell.
-            # Rewrite 127.0.0.1 to the doorbell's real address in
-            # Request-URI, Contact, and Via (sent-by).
-            global _doorbell_addr
-            target = _doorbell_addr or (
-                normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
-            )
-            if target:
-                host = target.replace("sip:", "").split("@")[-1].split(":")[0] \
-                    if "@" in target else target.replace("sip:", "").split(":")[0]
-                port = target.split(":")[-1] if ":" in target.split("@")[-1] else "5060"
-                relay_addr = f"@{SIP_DOMAIN}:{SIP_PORT}".encode()
-                fwd = data.replace(relay_addr,
-                                   f"@{host}:{port}".encode())
-                fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
-                                  f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
-                # Also rewrite Via sent-by so the doorbell sees 5060.
-                fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
-                                  f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
-                print(f"Registrar relay: forwarding outbound to {host}:{port}")
-                print(f"  INVITE hex: {fwd.hex()}")
-                relay_sock.sendto(fwd, (host, int(port)))
-                # Don't wait for or forward responses — SIP responses
-                # go directly to PJSIP via the Via header (5061).
-        else:
-            # Inbound: doorbell -> relay -> PJSIP
-            try:
-                relay_sock.sendto(data, pjsip_addr)
-                resp, _ = relay_sock.recvfrom(65535)
-                relay_sock.sendto(resp, addr)
-            except _socket.timeout:
-                pass
+        # Wrap per-packet handling so one bad packet can't kill the thread.
+        try:
+            first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
+            if first_line.startswith("REGISTER"):
+                _handle_register(data, addr)
+                # Learn doorbell address from the REGISTER packet itself.
+                global _doorbell_addr, _doorbell_ip, _doorbell_port
+                _doorbell_ip = addr[0]
+                _doorbell_port = addr[1]
+            elif addr[1] == _SIP_REGISTRAR_PORT:  # from PJSIP on port 5061
+                # Strip angle brackets from stored doorbell URI.
+                target = _doorbell_addr or (
+                    normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
+                )
+                target = target.strip("<>")
+                if first_line.startswith("SIP/2.0"):
+                    # SIP response from PJSIP -> forward to doorbell as-is.
+                    relay_sock.sendto(data, (_doorbell_ip, _doorbell_port))
+                elif target:
+                    host = target.replace("sip:", "").split("@")[-1].split(":")[0] \
+                        if "@" in target else target.replace("sip:", "").split(":")[0]
+                    port = target.split(":")[-1].rsplit(">")[0] \
+                        if ":" in target.split("@")[-1] else "5060"
+                    relay_addr = f"@{SIP_DOMAIN}:{SIP_PORT}".encode()
+                    fwd = data.replace(relay_addr,
+                                       f"@{host}:{port}".encode())
+                    fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
+                                      f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
+                    # Also rewrite Via sent-by so the doorbell sees 5060.
+                    fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
+                                      f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
+                    relay_sock.sendto(fwd, (host, int(port)))
+            else:
+                # Inbound: doorbell -> relay -> PJSIP
+                try:
+                    relay_sock.sendto(data, pjsip_addr)
+                    resp, _ = relay_sock.recvfrom(65535)
+                    relay_sock.sendto(resp, addr)
+                except _socket.timeout:
+                    pass
+        except (ValueError, IndexError) as e:
+            print(f"Registrar relay: packet handling error: {e}")
+        except OSError as e:
+            print(f"Registrar relay: socket error: {e}")
+            break
 
 
 # SIP endpoint setup
