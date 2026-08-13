@@ -23,7 +23,6 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | Option | Default | Description |
 |---|---|---|
 | `sip_username` | `"responder"` | Our SIP identity — the doorbell calls this. |
-| `doorbell_number` | `"doorbell"` | Doorbell's SIP identity — we call this for outbound triggers. |
 | `tts_message` | `"Please use the other bell."` | Text spoken by the doorbell |
 | `tts_voice` | `""` | Piper voice name (e.g., `en_US-lessac-medium`). Empty = Piper default. |
 | `tts_engine` | `tts.piper` | TTS entity to use |
@@ -38,13 +37,13 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `rtp_port_start` | `4000` | First RTP port (uses this + next for audio) |
 | `sip_display_name` | `"Doorbell Responder"` | Display name in SIP messages |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
-| `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound call triggers (empty = disabled) |
-| `outbound_sip_uri` | `""` | Full SIP URI override (e.g. `sip:doorbell@10.26.5.13:5060`). Auto-discovered from first ring if empty. |
+| `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound TTS triggers (empty = disabled) |
+| `doorbell_ip` | `""` | Doorbell IP address. Auto-discovered from first ring if empty. |
 | `tts_retry_enabled` | `true` | Retry TTS with backoff on failure |
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
 | `tts_retry_initial_delay` | `5` | Seconds before first retry |
 | `tts_retry_max_delay` | `300` | Max seconds between retries |
-| `go2rtc_enabled` | `false` | Play outbound TTS via go2rtc ISAPI instead of SIP call |
+| `go2rtc_enabled` | `false` | Enable go2rtc ISAPI outbound audio playback |
 | `doorbell_admin_username` | `"admin"` | Doorbell web UI admin username (ISAPI auth) |
 | `doorbell_admin_password` | `""` | Doorbell web UI admin password (ISAPI auth) |
 | `go2rtc_port` | `1984` | Internal go2rtc API port |
@@ -68,20 +67,14 @@ Set `log_level` to 5 only when debugging SIP issues.
 
 The app can make the doorbell speak arbitrary messages, triggered by MQTT. This enables automations to announce events on the doorbell speaker.
 
-### Recommended Mode: go2rtc ISAPI (direct speaker playback)
+### go2rtc ISAPI (direct speaker playback)
 
-The KB8113 does not reliably auto-answer SIP calls. Instead, use the embedded go2rtc to play audio directly on the doorbell speaker via Hikvision's ISAPI two-way audio:
+The embedded go2rtc plays audio directly on the doorbell speaker via Hikvision's ISAPI two-way audio — no SIP call involved, the doorbell doesn't need to answer anything:
 
 1. Set `go2rtc_enabled: true`
 2. Set `doorbell_admin_username` and `doorbell_admin_password` (doorbell web UI credentials)
-3. The doorbell IP is taken from `outbound_sip_uri` or auto-discovered from the first button press
+3. The doorbell IP is taken from `doorbell_ip` or auto-discovered from the first button press
 4. Publish to `mqtt_listen_topic` → TTS is generated → played on the doorbell speaker
-
-No SIP call involved — the doorbell doesn't need to answer anything.
-
-### Alternative Mode: SIP call
-
-With `go2rtc_enabled: false`, the app places an outbound SIP call to `outbound_sip_uri`. The doorbell must auto-answer the INVITE — on the KB8113 this is firmware-dependent and often doesn't work.
 
 ### Example Automation
 
@@ -101,7 +94,7 @@ action:
 ### Notes
 
 - TTS is generated on-demand with the same retry/backoff as startup TTS
-- The `outbound_sip_uri` accepts bare IPs (`192.168.1.50`) — `sip:` is auto-prepended
+- `doorbell_ip` accepts a bare IP (`192.168.1.50`) — no `sip:` prefix needed
 - Retained MQTT messages are ignored to prevent stale triggers on restart
 
 ## Doorbell Setup
