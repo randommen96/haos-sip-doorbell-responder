@@ -46,6 +46,10 @@ options:
   tts_retry_max_attempts: 0
   tts_retry_initial_delay: 5
   tts_retry_max_delay: 300
+  go2rtc_enabled: false
+  doorbell_admin_username: "admin"
+  doorbell_admin_password: ""
+  go2rtc_port: 1984
 
 schema:
   sip_username: str
@@ -72,6 +76,10 @@ schema:
   tts_retry_max_attempts: int
   tts_retry_initial_delay: int
   tts_retry_max_delay: int
+  go2rtc_enabled: bool
+  doorbell_admin_username: str
+  doorbell_admin_password: password
+  go2rtc_port: int
 
 map:
   - media:rw

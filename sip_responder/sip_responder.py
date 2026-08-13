@@ -46,7 +46,6 @@ import shutil
 import tempfile
 import queue
 import threading
-import socket as _socket
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
     load_options, OPTIONS_PATH,
@@ -116,6 +115,13 @@ TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
 TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
 TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
 OUTBOUND_CALL_TIMEOUT = 15  # seconds without answer before we CANCEL
+
+# go2rtc — ISAPI two-way audio for outbound TTS playback
+GO2RTC_ENABLED = cfg.get("go2rtc_enabled", False)
+DOORBELL_ADMIN_USERNAME = cfg.get("doorbell_admin_username", "admin")
+DOORBELL_ADMIN_PASSWORD = cfg.get("doorbell_admin_password", "")
+GO2RTC_PORT = cfg.get("go2rtc_port", 1984)
+_go2rtc_proc = None
 
 # Supervisor-injected token — automatically available to all add-ons.
 # Used to call HA Core API via the internal proxy at http://supervisor/core/api/
@@ -198,7 +204,7 @@ def _on_mqtt_message(client, userdata, msg):
     if not payload:
         print("MQTT: empty payload ignored.")
         return
-    if not OUTBOUND_SIP_URI:
+    if not OUTBOUND_SIP_URI and not GO2RTC_ENABLED:
         print("ERROR: outbound_sip_uri not configured — outbound call skipped.")
         return
     print(f"MQTT: outbound trigger: '{payload}'")
@@ -208,8 +214,9 @@ def _on_mqtt_message(client, userdata, msg):
 
 def _outbound_tts_worker(message):
     """Generate TTS for an outbound trigger, retrying with backoff. Runs in
-    a daemon thread; on success hands the audio to the main thread via the
-    queue. Never touches pjsua2 or the shared TTS cache file."""
+    a daemon thread. With go2rtc enabled, plays the audio directly on the
+    doorbell speaker via ISAPI backchannel. Otherwise hands the audio to
+    the main thread via the queue for a SIP call."""
     if not SUPERVISOR_TOKEN:
         print("ERROR: no SUPERVISOR_TOKEN — cannot generate outbound TTS.")
         return
@@ -220,7 +227,16 @@ def _outbound_tts_worker(message):
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
     )
     if ulaw_path:
-        _outbound["queue"].put({"message": message, "ulaw_path": ulaw_path})
+        if GO2RTC_ENABLED:
+            # Play directly on the doorbell speaker via go2rtc ISAPI.
+            play_audio_via_go2rtc(ulaw_path)
+            # Give playback time to finish before cleaning up.
+            import time as _time
+            file_size = os.path.getsize(ulaw_path)
+            _time.sleep(file_size / 8000 + 2)
+            remove_audio_file(ulaw_path)
+        else:
+            _outbound["queue"].put({"message": message, "ulaw_path": ulaw_path})
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
 
@@ -409,13 +425,6 @@ _account = None  # set by setup_sip_endpoint()
 # Doorbell SIP URI discovered from incoming calls — used as the default
 # outbound_sip_uri when the user hasn't configured one explicitly.
 _discovered_doorbell_uri = None
-_doorbell_ip = ""
-_doorbell_port = 5060
-
-# PJSIP runs on SIP_PORT + 1 — the registrar relay binds SIP_PORT.
-_SIP_REGISTRAR_PORT = SIP_PORT + 1  # 5061
-# Doorbell IP:port for relay outbound forwarding.
-_doorbell_addr = None
 
 # Outbound call state — all read/written only in the main thread.
 # pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
@@ -503,17 +512,10 @@ class DoorbellAccount(pj.Account):
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
-        global _discovered_doorbell_uri, _doorbell_addr, _doorbell_ip, _doorbell_port
+        global _discovered_doorbell_uri
         info = call.getInfo()
         if info.remoteContact and not _discovered_doorbell_uri:
             _discovered_doorbell_uri = info.remoteContact
-            _doorbell_addr = info.remoteContact
-            uri = info.remoteContact.strip("<>").replace("sip:", "")
-            if "@" in uri:
-                host_port = uri.split("@")[1]
-                _doorbell_ip = host_port.split(":")[0]
-                if ":" in host_port:
-                    _doorbell_port = int(host_port.split(":")[1])
             print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
@@ -586,17 +588,9 @@ def start_outbound_call(job):
     """Place the outbound call. Main thread only — called from
     process_outbound_requests. Stores the call for the GC fix."""
     # Resolve URI: explicit config > auto-discovered from incoming call
-    real_uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
+    uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
         _discovered_doorbell_uri or ""
     )
-    # Cache doorbell address for relay forwarding.
-    global _doorbell_addr
-    _doorbell_addr = real_uri
-
-    # Route through the relay on SIP_PORT so the INVITE appears from
-    # port 5060 (where the doorbell registered).  The relay rewrites
-    # the destination from 127.0.0.1:5060 to the doorbell's real address.
-    uri = f"sip:{DOORBELL_NUMBER}@{SIP_DOMAIN}:{SIP_PORT}" if real_uri else ""
 
     if not uri:
         print("ERROR: no outbound SIP URI — configure outbound_sip_uri"
@@ -655,172 +649,90 @@ def process_outbound_requests():
 
 # ---------------------------------------------------------------------------
 
+# go2rtc — ISAPI two-way audio playback for outbound TTS
 # ---------------------------------------------------------------------------
-# Registrar relay — handles REGISTER + outbound forwarding
-# ---------------------------------------------------------------------------
 
 
-def _start_registrar_relay(relay_sock):
-    """UDP relay daemon on SIP_PORT.  Intercepts REGISTER with proper
-    200 OK (echoing Contact with expires), forwards everything else
-    bidirectionally between doorbell and PJSIP on _SIP_REGISTRAR_PORT.
-    Outbound calls are routed through here so INVITEs come from 5060."""
-    import time as _time
-    pjsip_addr = ("127.0.0.1", _SIP_REGISTRAR_PORT)
+def _start_go2rtc():
+    """Start the go2rtc subprocess with the doorbell ISAPI stream config.
+    Runs in a daemon thread — logs go2rtc output to our stdout."""
+    global _go2rtc_proc
+    if not GO2RTC_ENABLED:
+        print("go2rtc: disabled (go2rtc_enabled=false)")
+        return
+    if not DOORBELL_ADMIN_PASSWORD:
+        print("go2rtc: ERROR - doorbell_admin_password not configured")
+        return
 
-    def _build_response(data, code, phrase, addr=("", 0), extra=""):
-        lines = data.decode("utf-8", errors="replace").split("\r\n")
-        via = from_h = to_h = call_id = cseq = contact = expires = ""
-        for line in lines:
-            low = line.lower()
-            if low.startswith("via:"):
-                via = line
-            elif low.startswith("from:"):
-                from_h = line
-            elif low.startswith("to:"):
-                to_h = line
-            elif low.startswith("call-id:"):
-                call_id = line
-            elif low.startswith("cseq:"):
-                cseq = line
-            elif low.startswith("contact:"):
-                contact = line.strip()
-            elif low.startswith("expires:"):
-                expires = line.split(":", 1)[1].strip()
-        if not all([via, from_h, to_h, call_id, cseq]):
-            return None
-        # RFC 3581: set received/rport on Via if request had bare rport.
-        # Don't add \r\n — the f-string adds it already.
-        if "rport" in via and "rport=" not in via:
-            via = via.rstrip() \
-                + f";received={addr[0]};rport={addr[1]}"
-        # Asterisk sets To tag = Via branch param for all responses > 100.
-        # Don't add \r\n — the f-string adds it already.
-        if "tag=" not in to_h and via:
-            branch = via.split("branch=")[-1].split(";")[0].strip()
-            to_h = to_h.rstrip() + f";tag={branch}"
-        cseq_num = cseq.split(" ")[1] if " " in cseq else "1"
-        resp = (
-            f"SIP/2.0 {code} {phrase}\r\n"
-            f"{via}\r\n"
-            f"{from_h}\r\n"
-            f"{to_h}\r\n"
-            f"{call_id}\r\n"
-            f"CSeq: {cseq_num} REGISTER\r\n"
+    doorbell_ip = DOORBELL_IP_FOR_GO2RTC()
+    if not doorbell_ip:
+        print("go2rtc: ERROR - cannot determine doorbell IP. Configure"
+              " outbound_sip_uri or wait for a doorbell ring.")
+        return
+
+    config = (
+        "log:\n"
+        "  level: info\n"
+        "api:\n"
+        f"  listen: :{GO2RTC_PORT}\n"
+        "rtsp:\n"
+        f"  listen: :8554\n"
+        "streams:\n"
+        f"  doorbell: isapi://{DOORBELL_ADMIN_USERNAME}:{DOORBELL_ADMIN_PASSWORD}@{doorbell_ip}:80/\n"
+    )
+    config_path = "/tmp/go2rtc.yaml"
+    with open(config_path, "w") as f:
+        f.write(config)
+    try:
+        _go2rtc_proc = subprocess.Popen(
+            ["/usr/local/bin/go2rtc", "-config", config_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
         )
-        if code == 200 and contact:
-            # Asterisk strips display name, rebuilds just the URI.
-            # Extract URI from Contact: "name" <uri> or just <uri>.
-            uri_part = contact
-            if "<" in contact and ">" in contact:
-                uri_part = contact[contact.index("<"):contact.index(">") + 1]
-            resp += f"Contact: {uri_part};expires={expires or '3600'}\r\n"
-            if expires:
-                resp += f"Expires: {expires}\r\n"
-        resp += extra
-        resp += (
-            f"Date: {_time.strftime('%a, %d %b %Y %H:%M:%S GMT', _time.gmtime())}\r\n"
-            f"Content-Length: 0\r\n\r\n"
+    except Exception as e:
+        print(f"go2rtc: failed to start: {e}")
+        return
+    print(f"go2rtc: started with ISAPI stream for doorbell at {doorbell_ip}")
+    for line in _go2rtc_proc.stdout:
+        line = line.strip()
+        if line:
+            print(f"go2rtc: {line}")
+
+
+def DOORBELL_IP_FOR_GO2RTC():
+    """Extract the doorbell IP from configured URI or discovery."""
+    uri = normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
+    if not uri:
+        return ""
+    uri = uri.strip("<>").replace("sip:", "")
+    if "@" in uri:
+        return uri.split("@")[1].split(":")[0]
+    return uri.split(":")[0]
+
+
+def play_audio_via_go2rtc(ulaw_path):
+    """Play a mu-law WAV on the doorbell speaker via go2rtc ISAPI."""
+    try:
+        resp = requests.post(
+            f"http://127.0.0.1:{GO2RTC_PORT}/api/streams",
+            params={
+                "dst": "doorbell",
+                "src": f"ffmpeg:{ulaw_path}#audio=pcma#input=file",
+            },
+            timeout=5,
         )
-        return resp.encode()
-
-    # Track which Call-IDs we've challenged (first REGISTER without auth).
-    _challenged = set()
-
-    def _handle_register(data, addr):
-        has_auth = b"Authorization:" in data
-        call_id = ""
-        for line in data.decode("utf-8", errors="replace").split("\r\n"):
-            if line.lower().startswith("call-id:"):
-                call_id = line.split(":", 1)[1].strip()
-                break
-        if has_auth or call_id in _challenged:
-            # Second REGISTER (or pre-authenticated): accept.
-            _challenged.discard(call_id)
-            resp = _build_response(data, 200, "OK", addr=addr)
-            if resp:
-                print(f"Registrar relay: 200 OK (registered) from {addr}")
-                # Show raw bytes for debugging YATE parsing
-                raw = resp
-                print(f"  Bytes: {raw.hex()}")
-                relay_sock.sendto(raw, addr)
+        if resp.status_code == 200:
+            print(f"go2rtc: playback started for {ulaw_path}")
+            return True
         else:
-            # First REGISTER without auth: challenge.
-            # Format matching Asterisk's pjsip_auth_srv_challenge().
-            _challenged.add(call_id)
-            nonce = f"{_time.time():.0f}/{_os.urandom(8).hex()}"
-            opaque = _os.urandom(8).hex()
-            extra = (
-                f'WWW-Authenticate: Digest realm="sip",'
-                f'nonce="{nonce}",'
-                f'opaque="{opaque}",'
-                f'algorithm=MD5,'
-                f'qop="auth"\r\n'
-            )
-            resp = _build_response(data, 401, "Unauthorized", addr=addr,
-                                    extra=extra)
-            if resp:
-                print(f"Registrar relay: 401 challenge to {addr}")
-                relay_sock.sendto(resp, addr)
+            print(f"go2rtc: playback failed: HTTP {resp.status_code}: "
+                  f"{resp.text[:200]}")
+            return False
+    except requests.RequestException as e:
+        print(f"go2rtc: playback request error: {e}")
+        return False
 
-    print(f"Registrar relay active on {SIP_DOMAIN}:{SIP_PORT}"
-          f" <-> PJSIP on {pjsip_addr}")
-    while True:
-        try:
-            data, addr = relay_sock.recvfrom(65535)
-        except _socket.timeout:
-            continue
-        except OSError:
-            break
-        if not data:
-            continue
-        # Wrap per-packet handling so one bad packet can't kill the thread.
-        try:
-            first_line = data.split(b"\r\n")[0].decode("utf-8", errors="replace")
-            if first_line.startswith("REGISTER"):
-                _handle_register(data, addr)
-                # Learn doorbell address from the REGISTER packet itself.
-                global _doorbell_addr, _doorbell_ip, _doorbell_port
-                _doorbell_ip = addr[0]
-                _doorbell_port = addr[1]
-            elif addr[1] == _SIP_REGISTRAR_PORT:  # from PJSIP on port 5061
-                # Strip angle brackets from stored doorbell URI.
-                target = _doorbell_addr or (
-                    normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
-                )
-                target = target.strip("<>")
-                if first_line.startswith("SIP/2.0"):
-                    # SIP response from PJSIP -> forward to doorbell as-is.
-                    relay_sock.sendto(data, (_doorbell_ip, _doorbell_port))
-                elif target:
-                    host = target.replace("sip:", "").split("@")[-1].split(":")[0] \
-                        if "@" in target else target.replace("sip:", "").split(":")[0]
-                    port = target.split(":")[-1].rsplit(">")[0] \
-                        if ":" in target.split("@")[-1] else "5060"
-                    relay_addr = f"@{SIP_DOMAIN}:{SIP_PORT}".encode()
-                    fwd = data.replace(relay_addr,
-                                       f"@{host}:{port}".encode())
-                    fwd = fwd.replace(f"@{SIP_DOMAIN}:{_SIP_REGISTRAR_PORT}".encode(),
-                                      f"@{SIP_DOMAIN}:{SIP_PORT}".encode())
-                    # Also rewrite Via sent-by so the doorbell sees 5060.
-                    fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
-                                      f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
-                    print(f"Relay: forwarding {first_line} to "
-                          f"{host}:{port}")
-                    relay_sock.sendto(fwd, (host, int(port)))
-            else:
-                # Inbound: doorbell -> relay -> PJSIP
-                try:
-                    relay_sock.sendto(data, pjsip_addr)
-                    resp, _ = relay_sock.recvfrom(65535)
-                    relay_sock.sendto(resp, addr)
-                except _socket.timeout:
-                    pass
-        except (ValueError, IndexError) as e:
-            print(f"Registrar relay: packet handling error: {e}")
-        except OSError as e:
-            print(f"Registrar relay: socket error: {e}")
-            break
 
 
 # SIP endpoint setup
@@ -843,7 +755,7 @@ def setup_sip_endpoint():
 
     # PJSIP on SIP_PORT+1 — relay on SIP_PORT handles REGISTER + forwarding.
     sip_tp_config = pj.TransportConfig()
-    sip_tp_config.port = _SIP_REGISTRAR_PORT
+    sip_tp_config.port = SIP_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
 
     ep.audDevManager().setNullDev()
@@ -933,16 +845,10 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Bind registrar relay on SIP_PORT before PJSIP starts.
-    relay_sock = _socket.socket(_socket.AF_INET, _socket.SOCK_DGRAM)
-    relay_sock.setsockopt(_socket.SOL_SOCKET, _socket.SO_REUSEADDR, 1)
-    relay_sock.bind((SIP_DOMAIN, SIP_PORT))
-    relay_sock.settimeout(1.0)
-    print(f"Registrar relay bound to {SIP_DOMAIN}:{SIP_PORT}")
-    threading.Thread(target=_start_registrar_relay, args=(relay_sock,),
-                     daemon=True).start()
+    # 3. Start go2rtc for ISAPI outbound audio (if enabled).
+    threading.Thread(target=_start_go2rtc, daemon=True).start()
 
-    # 4. Start SIP endpoint on the relay-forwarding port.
+    # 4. Start SIP endpoint.
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")

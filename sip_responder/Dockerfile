@@ -16,7 +16,19 @@ RUN apk add --no-cache \
     py3-pjsua \
     ffmpeg \
     py3-paho-mqtt \
-    py3-requests
+    py3-requests \
+    curl
+
+# go2rtc — ISAPI two-way audio for outbound TTS playback
+ARG TARGETARCH
+RUN case "${TARGETARCH}" in \
+        amd64) G2RTC="go2rtc_linux_amd64" ;; \
+        arm64) G2RTC="go2rtc_linux_arm64" ;; \
+        *) echo "unsupported arch ${TARGETARCH}"; exit 1 ;; \
+    esac \
+    && curl -L -o /usr/local/bin/go2rtc \
+        "https://github.com/AlexxIT/go2rtc/releases/download/v1.9.14/${G2RTC}" \
+    && chmod +x /usr/local/bin/go2rtc
 
 COPY config.py /
 COPY sip_responder.py /

@@ -35,6 +35,10 @@ def load_options():
         "tts_retry_max_attempts": 0,
         "tts_retry_initial_delay": 5,
         "tts_retry_max_delay": 300,
+        "go2rtc_enabled": False,
+        "doorbell_admin_username": "admin",
+        "doorbell_admin_password": "",
+        "go2rtc_port": 1984,
     }
     try:
         with open(OPTIONS_PATH) as f:
