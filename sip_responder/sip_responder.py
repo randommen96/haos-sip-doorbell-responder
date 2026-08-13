@@ -595,15 +595,27 @@ def play_audio_via_isapi(ulaw_path):
         print(f"ISAPI: raw file read error: {e}")
         return False
 
-    # 3. Open the audio channel, stream the audio, close.
+    # 3. Play audio. Hikvision channels get stuck if a previous open was
+    #    not closed, so always close first. Stream the audio at real-time
+    #    pace (8 kHz) so the doorbell plays it properly.
+    import time as _time
+
+    def _audio_generator():
+        chunk = 800  # 100ms of audio at 8 kHz
+        for i in range(0, len(pcmu), chunk):
+            yield pcmu[i:i + chunk]
+            _time.sleep(0.1)
+
     try:
+        # Close any stuck channel from a previous attempt (ignore errors).
+        requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
         requests.put(f"{base}/{channel}/open", auth=auth, timeout=5)
         requests.put(
             f"{base}/{channel}/audioData",
-            data=pcmu,
+            data=_audio_generator(),
             headers={"Content-Type": "application/octet-stream"},
             auth=auth,
-            timeout=15,
+            timeout=len(pcmu) / 8000 + 10,  # audio duration + margin
         )
         requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
     except requests.RequestException as e:
