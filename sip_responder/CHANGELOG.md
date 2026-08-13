@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.0.89
+
+- Fix Supervisor warnings: remove deprecated arch values (armhf, armv7,
+  i386), remove invalid tmp:rw map entry. Only aarch64 and amd64.
+
 ## 1.0.88
 
 - Add full relay forwarding log line to debug outbound INVITE path
