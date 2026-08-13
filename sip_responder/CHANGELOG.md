@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.92
+
+- Fix NameError: restore go2rtc functions accidentally removed during
+  outbound SIP cleanup. App crashed on startup with _start_go2rtc
+  not defined.
+
 ## 1.0.91
 
 - Removed SIP outbound mode entirely — go2rtc ISAPI is the only
