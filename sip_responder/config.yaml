@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.98"
+version: "1.0.99"
 slug: "sip_responder"
 url: "https://github.com/randommen96/haos-sip-doorbell-responder"
 documentation: "https://github.com/randommen96/haos-sip-doorbell-responder/blob/main/README.md"
@@ -12,25 +12,18 @@ arch:
   - aarch64
   - amd64
 
-ports:
-  5060/udp: 5060
-  4000/udp: 4000
-  4001/udp: 4001
-  4002/udp: 4002
-  4003/udp: 4003
-
+# host_network: true — the add-on binds host ports directly, so Docker
+# port mappings are ignored. Ports in use: 5060/udp (SIP) and
+# 4000-4003/udp (two RTP/RTCP pairs: account + active call).
 host_network: true
 
 options:
   sip_username: "responder"
-  sip_password: "change_me"
-  sip_display_name: "Doorbell Responder"
   sip_domain: "192.168.1.100"
   sip_port: 5060
   rtp_port_start: 4000
   tts_message: "Please use the other bell."
   tts_wav_path: "/media/tts/doorbell_message.wav"
-  tts_audio_duration: 5
   tts_engine: "tts.piper"
   tts_voice: ""
   mqtt_host: ""
@@ -40,7 +33,6 @@ options:
   mqtt_username: ""
   mqtt_password: ""
   mqtt_listen_topic: "doorbell/announce"
-  doorbell_number: "doorbell"
   doorbell_ip: ""
   tts_retry_enabled: true
   tts_retry_max_attempts: 0
@@ -51,14 +43,11 @@ options:
 
 schema:
   sip_username: str
-  sip_password: password
-  sip_display_name: str
   sip_domain: str
   sip_port: int
   rtp_port_start: int
   tts_message: str
   tts_wav_path: str
-  tts_audio_duration: int
   tts_engine: str
   tts_voice: str
   mqtt_host: str
@@ -68,7 +57,6 @@ schema:
   mqtt_username: str
   mqtt_password: password
   mqtt_listen_topic: str
-  doorbell_number: str
   doorbell_ip: str
   tts_retry_enabled: bool
   tts_retry_max_attempts: int

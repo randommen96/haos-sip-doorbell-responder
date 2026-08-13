@@ -13,12 +13,10 @@ def test_defaults():
     """When no options.json exists, defaults are returned."""
     opts = config.load_options()
     assert opts["sip_username"] == "responder"
-    assert opts["sip_password"] == "change_me"
     assert opts["sip_domain"] == "192.168.1.100"
     assert opts["sip_port"] == 5060
     assert opts["rtp_port_start"] == 4000
     assert opts["tts_message"] == "Please use the other bell."
-    assert opts["tts_audio_duration"] == 5
     assert opts["tts_engine"] == "tts.piper"
     assert opts["tts_voice"] == ""
     assert opts["mqtt_host"] == ""
@@ -64,9 +62,8 @@ def test_custom_values():
 def test_all_config_keys():
     """Every config.yaml option must have a default."""
     required = {
-        "sip_username", "sip_password", "sip_display_name", "sip_domain",
-        "sip_port", "rtp_port_start", "tts_message", "tts_wav_path",
-        "tts_audio_duration", "tts_engine", "tts_voice", "mqtt_host",
+        "sip_username", "sip_domain", "sip_port", "rtp_port_start",
+        "tts_message", "tts_wav_path", "tts_engine", "tts_voice", "mqtt_host",
         "mqtt_port", "sensor_name", "log_level", "mqtt_username", "mqtt_password",
         "mqtt_listen_topic", "doorbell_ip", "tts_retry_enabled",
         "tts_retry_max_attempts", "tts_retry_initial_delay", "tts_retry_max_delay",

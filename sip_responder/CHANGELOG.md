@@ -1,5 +1,20 @@
 # Changelog
 
+## 1.0.99
+
+- Cleanup: removed dead options (`sip_password`, `sip_display_name`,
+  `doorbell_number`, `tts_audio_duration`) and the dead `ports` block
+  (ignored under host networking).
+- Fixed player teardown race: player explicitly destroyed before hangup
+  instead of leaving it to GC (kills "Remove port failed PJ_EINVAL" and
+  the ~30 EOF log lines after playback). Playback tail tightened.
+- Set PJSIP conference clock rate to 8 kHz — all audio is PCMU, so the
+  per-call 8k<->16k resampling no longer runs.
+- Docker: /etc/asound.conf null device silences ~60 lines of ALSA card
+  scan errors per startup and per call (visible at every log level).
+- Docs: removed go2rtc references (ISAPI playback is direct), corrected
+  sip_username guidance (`responder` is the identity the doorbell calls).
+
 ## 1.0.98
 
 - Fixed ISAPI playback: doorbell ignores audio sent as PUT body.

@@ -58,5 +58,9 @@ python3 -m pytest tests/ -v
 
 ## Known Issues
 
-- ALSA/JACK startup noise (~60 lines): PortAudio scans for hardware in headless container. Can't safely suppress (ctypes fix caused segfaults). Harmless.
+- JACK probe noise (~5 lines at startup): PortAudio probes the JACK host API even with
+  JACK_NO_START_SERVER. Not suppressible without rebuilding PortAudio. Harmless.
 - SIP REGISTER from doorbell dropped: pjsua2 has no registrar module. Doorbell sends INVITE regardless.
+- ALSA noise (fixed in 1.0.99): ~60 card-scan error lines per startup/call, silenced by
+  mapping every PCM name in PortAudio's fallback list to null in /etc/asound.conf
+  (overriding only `default` is not enough).

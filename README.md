@@ -40,8 +40,8 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 | Setting | Value |
 |---|---|
 | Enable VOIP Gateway | Checked |
-| Register User Name | `doorbell` (matches app's `sip_username`) |
-| Registration Password | (same as app's `sip_password`) |
+| Register User Name | `doorbell` (the doorbell's own identity — any value) |
+| Registration Password | Any value — the app does not verify registration |
 | Server Address | `<Your HA host IP>` |
 | Server Port | `5060` |
 | Number | `doorbell` |
@@ -57,7 +57,7 @@ Home Assistant app (add-on) that answers SIP calls from a Hikvision KB8113-IME1 
 | Setting | Value |
 |---|---|
 | Room No. | `1` |
-| SIP Number | `doorbell` (must match app's `sip_username`) |
+| SIP Number | `responder` (must match app's `sip_username`) |
 
 9. Save.
 10. Go to **Intercom** -> **Press Button to Call**
@@ -79,8 +79,7 @@ The doorbell clicks a relay on button press by default. To silence it: go to **I
 | Option | Value |
 |---|---|
 | `sip_domain` | Your HA host IP (e.g., `192.168.1.100`) |
-| `sip_username` | `doorbell` (must match doorbell's SIP Number) |
-| `sip_password` | Pick a password (must match doorbell's SIP Password) |
+| `sip_username` | `responder` (our identity — the doorbell calls this) |
 | `tts_message` | What you want the doorbell to say |
 | `tts_voice` | Piper voice (e.g., `en_US-lessac-medium`). Empty = Piper default |
 | `sensor_name` | Name for the MQTT binary sensor entity |
@@ -178,9 +177,9 @@ action:
 
 You can make the doorbell speak arbitrary messages by publishing to an MQTT topic:
 
-1. Set `go2rtc_enabled: true` and `doorbell_admin_password` (doorbell web UI password)
+1. Set `doorbell_admin_username` (default `admin`) and `doorbell_admin_password` (doorbell web UI password)
 2. `mqtt_listen_topic` defaults to `doorbell/announce`. `doorbell_ip` is optional — auto-discovered on the first ring.
-3. Publish a message to the topic — the app generates TTS and plays it on the doorbell speaker via go2rtc ISAPI (no SIP call needed)
+3. Publish a message to the topic — the app generates TTS and plays it on the doorbell speaker via Hikvision ISAPI two-way audio (no SIP call needed)
 
 Use in automations:
 

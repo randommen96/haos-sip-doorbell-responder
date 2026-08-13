@@ -12,14 +12,11 @@ def load_options():
     """Load and return HA add-on options, with defaults."""
     defaults = {
         "sip_username": "responder",
-        "sip_password": "change_me",
-        "sip_display_name": "Doorbell Responder",
         "sip_domain": "192.168.1.100",
         "sip_port": 5060,
         "rtp_port_start": 4000,
         "tts_message": "Please use the other bell.",
         "tts_wav_path": "/media/tts/doorbell_message.wav",
-        "tts_audio_duration": 5,
         "tts_engine": "tts.piper",
         "tts_voice": "",
         "mqtt_host": "",
@@ -29,7 +26,6 @@ def load_options():
         "mqtt_username": "",
         "mqtt_password": "",
         "mqtt_listen_topic": "doorbell/announce",
-        "doorbell_number": "doorbell",
         "doorbell_ip": "",
         "tts_retry_enabled": True,
         "tts_retry_max_attempts": 0,

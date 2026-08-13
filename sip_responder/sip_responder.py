@@ -20,14 +20,6 @@ def _ts_print(*args, **kwargs):
 
 _bi.print = _ts_print
 
-
-def _ts_print(*args, **kwargs):
-    ts = time.strftime("%H:%M:%S")
-    _orig_print(f"{ts}", *args, **kwargs)
-
-
-_bi.print = _ts_print
-
 # Suppress PulseAudio/JACK client connection noise in headless container.
 # ALSA noise (~60 lines of card scan / virtual PCM spam) is harmless
 # and we cannot safely suppress it (ctypes ALSA error handler causes
@@ -54,8 +46,6 @@ from config import (  # noqa: E402
 cfg = load_options()
 
 SIP_USERNAME = cfg["sip_username"]
-SIP_PASSWORD = cfg["sip_password"]
-SIP_DISPLAY_NAME = cfg["sip_display_name"]
 SIP_DOMAIN = cfg["sip_domain"]
 SIP_PORT = cfg["sip_port"]
 RTP_PORT_START = cfg["rtp_port_start"]
@@ -99,7 +89,6 @@ def discover_mqtt_broker():
 TTS_MESSAGE = cfg["tts_message"]
 TTS_WAV_PATH = cfg["tts_wav_path"]
 TTS_ULAW_PATH = "/tmp/doorbell_message_ulaw.wav"
-TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
 TTS_ENGINE = cfg["tts_engine"]
 TTS_VOICE = cfg.get("tts_voice", "")
 
@@ -450,12 +439,25 @@ def play_audio_in_call(call, ulaw_path):
     # Process events briefly so the conference connection completes
     # before we start sleeping. Without this, short files (<3s) can
     # miss the first ~100ms while ports are being connected.
-    deadline = time.time() + duration + 0.5
+    deadline = time.time() + duration + 0.2
     while time.time() < deadline:
         if _endpoint:
             _endpoint.libHandleEvents(50)
         else:
             time.sleep(0.05)
+
+    # Destroy the player before the hangup. If it is left to Python GC
+    # during call teardown, pjsua2 removes its conference port twice
+    # (PJ_EINVAL) and the drained file port spams EOF lines.
+    try:
+        player.stopTransmit(call_media)
+    except pj.Error:
+        pass
+    del player
+    deadline = time.time() + 0.1
+    while time.time() < deadline:
+        if _endpoint:
+            _endpoint.libHandleEvents(10)
 
     hangup_prm = pj.CallOpParam()
     call.hangup(hangup_prm)
@@ -690,6 +692,9 @@ def setup_sip_endpoint():
     # dispatch to Python callbacks. With 0 threads, the main thread
     # handles all SIP events and our onCallState/onIncomingCall fire.
     ep_cfg.uaConfig.threadCnt = 0
+    # All audio is 8 kHz PCMU (doorbell codec + ISAPI mu-law). Match the
+    # conference clock rate so no 8k<->16k resampling runs per call.
+    ep_cfg.medConfig.clockRate = 8000
     # Suppress PJSIP detail logs (REGISTER retries, endpoint/module init).
     # Level 2 = WARNING, suppresses the ~40 lines of INFO per startup.
     ep_cfg.logConfig.level = LOG_LEVEL
@@ -698,7 +703,9 @@ def setup_sip_endpoint():
     ep.libCreate()
     ep.libInit(ep_cfg)
 
-    # PJSIP on SIP_PORT+1 — relay on SIP_PORT handles REGISTER + forwarding.
+    # Transport on SIP_PORT. The doorbell sends periodic REGISTERs here;
+    # pjsua has no registrar module, so they are dropped without a reply
+    # (debug-level log only). The doorbell INVITEs regardless.
     sip_tp_config = pj.TransportConfig()
     sip_tp_config.port = SIP_PORT
     ep.transportCreate(pj.PJSIP_TRANSPORT_UDP, sip_tp_config)
@@ -745,7 +752,7 @@ def main():
     print(f"  PJSIP log level: {LOG_LEVEL} (0=fatal, 5=verbose)")
     mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
-    print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
+    print(f"  TTS: '{TTS_MESSAGE}'" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
     if MQTT_LISTEN_TOPIC:
         ip_txt = DOORBELL_IP or "(auto-discover on first ring)"
         print(f"  Outbound audio: topic '{MQTT_LISTEN_TOPIC}' -> doorbell {ip_txt}"
@@ -794,7 +801,7 @@ def main():
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")
-    print(f"TTS: {mode} | Message: '{TTS_MESSAGE}' | Duration: {TTS_AUDIO_DURATION}s")
+    print(f"TTS: {mode} | Message: '{TTS_MESSAGE}'")
     print("Waiting for doorbell rings...")
 
     # 5. Event loop — with threadCnt=0, we must poll for SIP events.

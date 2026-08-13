@@ -16,7 +16,6 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | Option | Description |
 |---|---|
 | `sip_domain` | Your HA host IP address (e.g., `10.26.5.254`). The doorbell connects to this. |
-| `sip_password` | SIP password. Must match the doorbell's Registration Password. |
 
 ### Optional
 
@@ -26,7 +25,6 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `tts_message` | `"Please use the other bell."` | Text spoken by the doorbell |
 | `tts_voice` | `""` | Piper voice name (e.g., `en_US-lessac-medium`). Empty = Piper default. |
 | `tts_engine` | `tts.piper` | TTS entity to use |
-| `tts_audio_duration` | `5` | Fallback duration if file size can't be read |
 | `sensor_name` | `"Doorbell Pressed"` | Name of the MQTT binary sensor in HA |
 | `log_level` | `1` | PJSIP log level: 0=fatal, 1=error (default), 2=warning, 3=info, 4=debug, 5=trace |
 | `mqtt_host` | `""` | MQTT broker host. Leave empty for auto-discovery. |
@@ -34,8 +32,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `mqtt_username` | `""` | MQTT username. Leave empty for auto-discovery. |
 | `mqtt_password` | `""` | MQTT password. Leave empty for auto-discovery. |
 | `sip_port` | `5060` | SIP signalling port |
-| `rtp_port_start` | `4000` | First RTP port (uses this + next for audio) |
-| `sip_display_name` | `"Doorbell Responder"` | Display name in SIP messages |
+| `rtp_port_start` | `4000` | First RTP port (two pairs used: account + active call) |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
 | `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound TTS triggers (empty = disabled) |
 | `doorbell_ip` | `""` | Doorbell IP address. Auto-discovered from first ring if empty. |
@@ -43,10 +40,8 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
 | `tts_retry_initial_delay` | `5` | Seconds before first retry |
 | `tts_retry_max_delay` | `300` | Max seconds between retries |
-| `go2rtc_enabled` | `false` | Enable go2rtc ISAPI outbound audio playback |
 | `doorbell_admin_username` | `"admin"` | Doorbell web UI admin username (ISAPI auth) |
 | `doorbell_admin_password` | `""` | Doorbell web UI admin password (ISAPI auth) |
-| `go2rtc_port` | `1984` | Internal go2rtc API port |
 
 ### Log Levels
 
@@ -67,14 +62,13 @@ Set `log_level` to 5 only when debugging SIP issues.
 
 The app can make the doorbell speak arbitrary messages, triggered by MQTT. This enables automations to announce events on the doorbell speaker.
 
-### go2rtc ISAPI (direct speaker playback)
+### ISAPI two-way audio (direct speaker playback)
 
-The embedded go2rtc plays audio directly on the doorbell speaker via Hikvision's ISAPI two-way audio — no SIP call involved, the doorbell doesn't need to answer anything:
+The app plays audio directly on the doorbell speaker via Hikvision's ISAPI two-way audio — no SIP call involved, the doorbell doesn't need to answer anything:
 
-1. Set `go2rtc_enabled: true`
-2. Set `doorbell_admin_username` and `doorbell_admin_password` (doorbell web UI credentials)
-3. The doorbell IP is taken from `doorbell_ip` or auto-discovered from the first button press
-4. Publish to `mqtt_listen_topic` → TTS is generated → played on the doorbell speaker
+1. Set `doorbell_admin_username` and `doorbell_admin_password` (doorbell web UI credentials)
+2. The doorbell IP is taken from `doorbell_ip` or auto-discovered from the first button press
+3. Publish to `mqtt_listen_topic` → TTS is generated → played on the doorbell speaker
 
 ### Example Automation
 
