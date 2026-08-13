@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.88
+
+- Add full relay forwarding log line to debug outbound INVITE path
+
 ## 1.0.87
 
 - Critical fix: relay thread crashed on SIP responses (ValueError on
