@@ -94,6 +94,7 @@ TTS_VOICE = cfg.get("tts_voice", "")
 
 # MQTT trigger — outbound TTS feature
 MQTT_LISTEN_TOPIC = cfg.get("mqtt_listen_topic", "")
+MQTT_RESULT_TOPIC = cfg.get("mqtt_result_topic", "doorbell/announce/result")
 DOORBELL_IP = cfg.get("doorbell_ip", "")
 
 # TTS retry — exponential backoff for startup and on-demand generation
@@ -179,6 +180,42 @@ def publish_mqtt_doorbell_state(state):
     print(f"MQTT publish: {DOORBELL_STATE_TOPIC} = {payload} (rc={msg.rc})")
 
 
+def publish_mqtt_announce_result(status, message, error="", correlation_id=""):
+    """Publish the terminal result of an outbound announcement so HA
+    automations can react to it. Not retained: results are transient
+    events — a retained payload would re-deliver stale results on every
+    reconnect."""
+    if not MQTT_RESULT_TOPIC:
+        return
+    payload = {
+        "id": correlation_id,
+        "status": status,
+        "message": message,
+        "error": error,
+    }
+    mqtt_client.publish(MQTT_RESULT_TOPIC, json.dumps(payload), qos=1)
+    print(f"MQTT result: {MQTT_RESULT_TOPIC} = {json.dumps(payload)}")
+
+
+def _parse_outbound_payload(payload):
+    """Parse an outbound trigger payload. Plain text is the whole message;
+    a JSON object {"id": ..., "text": ...} (or "message") also carries a
+    correlation id echoed in the result so the sender can match its
+    request. Returns (text, correlation_id)."""
+    stripped = payload.strip()
+    if stripped.startswith("{"):
+        try:
+            data = json.loads(stripped)
+        except json.JSONDecodeError:
+            return stripped, ""
+        if isinstance(data, dict):
+            text = data.get("text") or data.get("message")
+            cid = data.get("id")
+            if isinstance(text, str) and text.strip():
+                return text.strip(), cid if isinstance(cid, str) else ""
+    return stripped, ""
+
+
 def _on_mqtt_message(client, userdata, msg):
     """Outbound trigger. Runs on paho's network thread — spawns a TTS
     worker thread which plays audio on the doorbell via ISAPI."""
@@ -191,16 +228,23 @@ def _on_mqtt_message(client, userdata, msg):
     if not payload:
         print("MQTT: empty payload ignored.")
         return
-    print(f"MQTT: outbound trigger: '{payload}'")
-    threading.Thread(target=_outbound_tts_worker, args=(payload,),
+    text, correlation_id = _parse_outbound_payload(payload)
+    if not text:
+        print("MQTT: empty or text-less payload ignored.")
+        return
+    print(f"MQTT: outbound trigger: '{text}'")
+    threading.Thread(target=_outbound_tts_worker, args=(text, correlation_id),
                      daemon=True).start()
 
 
-def _outbound_tts_worker(message):
+def _outbound_tts_worker(message, correlation_id=""):
     """Generate TTS for an outbound trigger, retrying with backoff, then
-    play it on the doorbell speaker via ISAPI two-way audio."""
+    play it on the doorbell speaker via ISAPI two-way audio. Publishes the
+    terminal result (ok/error) to MQTT_RESULT_TOPIC for automations."""
     if not SUPERVISOR_TOKEN:
         print("ERROR: no SUPERVISOR_TOKEN — cannot generate outbound TTS.")
+        publish_mqtt_announce_result(
+            "error", message, "no SUPERVISOR_TOKEN", correlation_id)
         return
     ulaw_path = retry_with_backoff(
         lambda: _generate_outbound_audio(message),
@@ -214,10 +258,17 @@ def _outbound_tts_worker(message):
         # fully read into memory before streaming and playback is paced
         # in real time inside play_audio_via_isapi, so it can be removed
         # as soon as it returns.
-        play_audio_via_isapi(ulaw_path)
+        played = play_audio_via_isapi(ulaw_path)
         remove_audio_file(ulaw_path)
+        if played:
+            publish_mqtt_announce_result("ok", message, "", correlation_id)
+        else:
+            publish_mqtt_announce_result(
+                "error", message, "ISAPI playback failed", correlation_id)
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
+        publish_mqtt_announce_result(
+            "error", message, "TTS generation failed", correlation_id)
 
 
 mqtt_client.on_message = _on_mqtt_message
@@ -788,6 +839,7 @@ def main():
         ip_txt = DOORBELL_IP or "(auto-discover on first ring)"
         print(f"  Outbound audio: topic '{MQTT_LISTEN_TOPIC}' -> doorbell {ip_txt}"
               f" via ISAPI")
+        print(f"  Outbound result: topic '{MQTT_RESULT_TOPIC}'")
     else:
         print("  Outbound audio: disabled (mqtt_listen_topic empty)")
     print(f"  TTS retry: {'enabled' if TTS_RETRY_ENABLED else 'disabled'} "
