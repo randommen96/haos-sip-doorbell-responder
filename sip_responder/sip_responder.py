@@ -555,7 +555,10 @@ def play_audio_via_isapi(ulaw_path):
               " doorbell_ip or wait for a doorbell ring.")
         return False
 
-    auth = (DOORBELL_ADMIN_USERNAME, DOORBELL_ADMIN_PASSWORD)
+    # Hikvision ISAPI uses Digest authentication.
+    auth = requests.auth.HTTPDigestAuth(
+        DOORBELL_ADMIN_USERNAME, DOORBELL_ADMIN_PASSWORD
+    )
     base = f"http://{doorbell_ip}/ISAPI/System/TwoWayAudio/channels"
 
     # 1. Discover the audio channel ID.
