@@ -113,12 +113,9 @@ TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
 TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
 TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
 
-# go2rtc — ISAPI two-way audio for outbound TTS playback
-GO2RTC_ENABLED = cfg.get("go2rtc_enabled", False)
+# ISAPI — Hikvision two-way audio for outbound TTS playback
 DOORBELL_ADMIN_USERNAME = cfg.get("doorbell_admin_username", "admin")
 DOORBELL_ADMIN_PASSWORD = cfg.get("doorbell_admin_password", "")
-GO2RTC_PORT = cfg.get("go2rtc_port", 1984)
-_go2rtc_proc = None
 
 # Supervisor-injected token — automatically available to all add-ons.
 # Used to call HA Core API via the internal proxy at http://supervisor/core/api/
@@ -190,7 +187,7 @@ def publish_mqtt_doorbell_state(state):
 
 def _on_mqtt_message(client, userdata, msg):
     """Outbound trigger. Runs on paho's network thread — spawns a TTS
-    worker thread which plays audio on the doorbell via go2rtc ISAPI."""
+    worker thread which plays audio on the doorbell via ISAPI."""
     if not MQTT_LISTEN_TOPIC:
         return
     if msg.retain:
@@ -207,7 +204,7 @@ def _on_mqtt_message(client, userdata, msg):
 
 def _outbound_tts_worker(message):
     """Generate TTS for an outbound trigger, retrying with backoff, then
-    play it on the doorbell speaker via go2rtc ISAPI backchannel."""
+    play it on the doorbell speaker via ISAPI two-way audio."""
     if not SUPERVISOR_TOKEN:
         print("ERROR: no SUPERVISOR_TOKEN — cannot generate outbound TTS.")
         return
@@ -218,8 +215,8 @@ def _outbound_tts_worker(message):
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
     )
     if ulaw_path:
-        # Play directly on the doorbell speaker via go2rtc ISAPI.
-        play_audio_via_go2rtc(ulaw_path)
+        # Play directly on the doorbell speaker via ISAPI.
+        play_audio_via_isapi(ulaw_path)
         # Give playback time to finish before cleaning up.
         import time as _time
         file_size = os.path.getsize(ulaw_path)
@@ -481,7 +478,7 @@ class DoorbellAccount(pj.Account):
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
 
-        # Learn the doorbell's IP for go2rtc ISAPI playback.
+        # Learn the doorbell's IP for ISAPI playback.
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
@@ -528,58 +525,11 @@ class DoorbellCall(pj.Call):
 
 
 
-# go2rtc — ISAPI two-way audio playback for outbound TTS
+# ISAPI two-way audio — direct playback on the doorbell speaker
 # ---------------------------------------------------------------------------
 
 
-def _start_go2rtc():
-    """Start the go2rtc subprocess with the doorbell ISAPI stream config.
-    Runs in a daemon thread — logs go2rtc output to our stdout."""
-    global _go2rtc_proc
-    if not GO2RTC_ENABLED:
-        print("go2rtc: disabled (go2rtc_enabled=false)")
-        return
-    if not DOORBELL_ADMIN_PASSWORD:
-        print("go2rtc: ERROR - doorbell_admin_password not configured")
-        return
-
-    doorbell_ip = DOORBELL_IP_FOR_GO2RTC()
-    if not doorbell_ip:
-        print("go2rtc: ERROR - cannot determine doorbell IP. Configure"
-              " doorbell_ip or wait for a doorbell ring.")
-        return
-
-    config = (
-        "log:\n"
-        "  level: info\n"
-        "api:\n"
-        f"  listen: :{GO2RTC_PORT}\n"
-        "rtsp:\n"
-        "  listen: :8554\n"
-        "streams:\n"
-        f"  doorbell: isapi://{DOORBELL_ADMIN_USERNAME}:{DOORBELL_ADMIN_PASSWORD}@{doorbell_ip}:80/\n"
-    )
-    config_path = "/tmp/go2rtc.yaml"
-    with open(config_path, "w") as f:
-        f.write(config)
-    try:
-        _go2rtc_proc = subprocess.Popen(
-            ["/usr/local/bin/go2rtc", "-config", config_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-    except Exception as e:
-        print(f"go2rtc: failed to start: {e}")
-        return
-    print(f"go2rtc: started with ISAPI stream for doorbell at {doorbell_ip}")
-    for line in _go2rtc_proc.stdout:
-        line = line.strip()
-        if line:
-            print(f"go2rtc: {line}")
-
-
-def DOORBELL_IP_FOR_GO2RTC():
+def doorbell_ip_for_isapi():
     """Resolve the doorbell IP from config or auto-discovery."""
     if DOORBELL_IP:
         return DOORBELL_IP.strip()
@@ -592,27 +542,63 @@ def DOORBELL_IP_FOR_GO2RTC():
     return uri.split(":")[0]
 
 
-def play_audio_via_go2rtc(ulaw_path):
-    """Play a mu-law WAV on the doorbell speaker via go2rtc ISAPI."""
-    try:
-        resp = requests.post(
-            f"http://127.0.0.1:{GO2RTC_PORT}/api/streams",
-            params={
-                "dst": "doorbell",
-                "src": f"ffmpeg:{ulaw_path}#audio=pcma#input=file",
-            },
-            timeout=5,
-        )
-        if resp.status_code == 200:
-            print(f"go2rtc: playback started for {ulaw_path}")
-            return True
-        else:
-            print(f"go2rtc: playback failed: HTTP {resp.status_code}: "
-                  f"{resp.text[:200]}")
-            return False
-    except requests.RequestException as e:
-        print(f"go2rtc: playback request error: {e}")
+def play_audio_via_isapi(ulaw_path):
+    """Play a mu-law WAV directly on the doorbell speaker via Hikvision
+    ISAPI two-way audio. Uses basic auth with the doorbell web UI
+    credentials. Returns True on success."""
+    import wave
+    import xml.etree.ElementTree as ET
+
+    doorbell_ip = doorbell_ip_for_isapi()
+    if not doorbell_ip:
+        print("ISAPI: ERROR - cannot determine doorbell IP. Configure"
+              " doorbell_ip or wait for a doorbell ring.")
         return False
+
+    auth = (DOORBELL_ADMIN_USERNAME, DOORBELL_ADMIN_PASSWORD)
+    base = f"http://{doorbell_ip}/ISAPI/System/TwoWayAudio/channels"
+
+    # 1. Discover the audio channel ID.
+    try:
+        resp = requests.get(base, auth=auth, timeout=5)
+        if resp.status_code != 200:
+            print(f"ISAPI: channel discovery failed: HTTP {resp.status_code}")
+            return False
+        root = ET.fromstring(resp.content)
+        channel = root.findtext(".//{*}id")
+        if not channel:
+            print("ISAPI: no two-way audio channel found. Enable the"
+                  " doorbell's two-way audio channel in its web UI.")
+            return False
+    except (requests.RequestException, ET.ParseError) as e:
+        print(f"ISAPI: channel discovery error: {e}")
+        return False
+
+    # 2. Read raw PCMU samples from the WAV (we generate G.711 mu-law).
+    try:
+        with wave.open(ulaw_path, "rb") as w:
+            pcmu = w.readframes(w.getnframes())
+    except (wave.Error, OSError) as e:
+        print(f"ISAPI: WAV read error: {e}")
+        return False
+
+    # 3. Open the audio channel, stream the audio, close.
+    try:
+        requests.put(f"{base}/{channel}/open", auth=auth, timeout=5)
+        requests.put(
+            f"{base}/{channel}/audioData",
+            data=pcmu,
+            headers={"Content-Type": "application/octet-stream"},
+            auth=auth,
+            timeout=15,
+        )
+        requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
+    except requests.RequestException as e:
+        print(f"ISAPI: playback error: {e}")
+        return False
+
+    print(f"ISAPI: played {len(pcmu)} bytes of audio on the doorbell")
+    return True
 
 
 # SIP endpoint setup
@@ -684,7 +670,7 @@ def main():
     if MQTT_LISTEN_TOPIC:
         ip_txt = DOORBELL_IP or "(auto-discover on first ring)"
         print(f"  Outbound audio: topic '{MQTT_LISTEN_TOPIC}' -> doorbell {ip_txt}"
-              f" via go2rtc ISAPI (port {GO2RTC_PORT})")
+              f" via ISAPI")
     else:
         print("  Outbound audio: disabled (mqtt_listen_topic empty)")
     print(f"  TTS retry: {'enabled' if TTS_RETRY_ENABLED else 'disabled'} "
@@ -725,10 +711,7 @@ def main():
     #    SIP startup is never blocked; Piper warm-up is covered by retries.
     threading.Thread(target=_startup_tts_worker, daemon=True).start()
 
-    # 3. Start go2rtc for ISAPI outbound audio (if enabled).
-    threading.Thread(target=_start_go2rtc, daemon=True).start()
-
-    # 4. Start SIP endpoint.
+    # 3. Start SIP endpoint.
     ep, acc = setup_sip_endpoint()
     mode = "API" if SUPERVISOR_TOKEN else "static file"
     print(f"SIP listening: {SIP_USERNAME}@{SIP_DOMAIN}:{SIP_PORT}")

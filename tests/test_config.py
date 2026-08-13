@@ -33,10 +33,8 @@ def test_defaults():
     assert opts["tts_retry_max_attempts"] == 0
     assert opts["tts_retry_initial_delay"] == 5
     assert opts["tts_retry_max_delay"] == 300
-    assert opts["go2rtc_enabled"] is False
     assert opts["doorbell_admin_username"] == "admin"
     assert opts["doorbell_admin_password"] == ""
-    assert opts["go2rtc_port"] == 1984
 
 
 def test_custom_values():
@@ -72,8 +70,7 @@ def test_all_config_keys():
         "mqtt_port", "sensor_name", "log_level", "mqtt_username", "mqtt_password",
         "mqtt_listen_topic", "doorbell_ip", "tts_retry_enabled",
         "tts_retry_max_attempts", "tts_retry_initial_delay", "tts_retry_max_delay",
-        "go2rtc_enabled", "doorbell_admin_username", "doorbell_admin_password",
-        "go2rtc_port",
+        "doorbell_admin_username", "doorbell_admin_password",
     }
     opts = config.load_options()
     missing = required - set(opts.keys())
