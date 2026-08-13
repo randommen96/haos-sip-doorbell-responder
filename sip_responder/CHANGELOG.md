@@ -1,5 +1,15 @@
 # Changelog
 
+## 1.0.103
+
+- TTS retry hardening: exceptions from an attempt (e.g. HTML error page
+  from a restarting Supervisor proxy, non-UTF8 ffmpeg output) are now
+  treated as failed attempts instead of killing the retry loop.
+- Outbound announcements now have a 10-minute retry limit — stale
+  messages are dropped instead of being played hours later, and retry
+  threads no longer pile up during a long TTS outage. Startup TTS
+  keeps retrying forever.
+
 ## 1.0.102
 
 - Stale call watchdog: if the doorbell never answers our BYE (power

@@ -137,3 +137,27 @@ def test_retry_with_backoff_max_attempts():
     )
     assert result is None
     assert attempts[0] == 3  # immediate try + 2 retries = 3 total
+
+
+def test_retry_with_backoff_attempt_exception_is_failure():
+    """An exception from attempt_fn is treated as a failed attempt,
+    not a fatal error."""
+    attempts = [0]
+
+    def flaky():
+        attempts[0] += 1
+        if attempts[0] < 3:
+            raise ValueError("boom")
+        return "ok"
+
+    result = retry_with_backoff(flaky, "test", True, 0.01, 0.02, 0)
+    assert result == "ok"
+    assert attempts[0] == 3
+
+
+def test_retry_with_backoff_max_elapsed():
+    """Gives up once the wall-clock limit is reached."""
+    result = retry_with_backoff(
+        lambda: None, "test", True, 0.01, 0.02, 0, max_elapsed=0.05,
+    )
+    assert result is None

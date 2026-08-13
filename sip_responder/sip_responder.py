@@ -102,6 +102,11 @@ TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
 TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
 TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
 
+# Outbound announcements are time-sensitive: retry generation for at
+# most 10 minutes, then drop the message. A stale "package delivered"
+# played hours later is worse than no announcement.
+OUTBOUND_TTS_TTL = 600
+
 # ISAPI — Hikvision two-way audio for outbound TTS playback
 DOORBELL_ADMIN_USERNAME = cfg.get("doorbell_admin_username", "admin")
 DOORBELL_ADMIN_PASSWORD = cfg.get("doorbell_admin_password", "")
@@ -202,6 +207,7 @@ def _outbound_tts_worker(message):
         f"Outbound TTS '{message[:30]}'",
         TTS_RETRY_ENABLED, TTS_RETRY_INITIAL_DELAY,
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
+        max_elapsed=OUTBOUND_TTS_TTL,
     )
     if ulaw_path:
         # Play directly on the doorbell speaker via ISAPI. The file is

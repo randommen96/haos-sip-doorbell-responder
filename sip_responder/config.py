@@ -67,15 +67,26 @@ def normalize_sip_uri(uri):
 
 
 def retry_with_backoff(attempt_fn, name, enabled,
-                       initial_delay, max_delay, max_attempts):
+                       initial_delay, max_delay, max_attempts,
+                       max_elapsed=None):
     """Call attempt_fn() until it returns a truthy value, backing off
     exponentially (initial_delay * 2^n, capped at max_delay). With
     enabled=False it tries exactly once. max_attempts=0 means retry forever.
+    max_elapsed (seconds, None = never) gives up once the wall-clock
+    limit is reached — sleeps are truncated so it is not overshot.
     Returns the first truthy result, or None on final failure."""
     delay = initial_delay
     failures = 0
+    started = time.time()
     while True:
-        result = attempt_fn()
+        try:
+            result = attempt_fn()
+        except Exception as e:
+            # One bad response (e.g. an HTML error page from a restarting
+            # Supervisor proxy, non-UTF8 ffmpeg output) must not kill the
+            # retry loop permanently — treat it as a failed attempt.
+            print(f"{name}: attempt raised {type(e).__name__}: {e}")
+            result = None
         if result:
             return result
         if not enabled:
@@ -84,6 +95,12 @@ def retry_with_backoff(attempt_fn, name, enabled,
         if max_attempts > 0 and failures >= max_attempts:
             print(f"{name}: gave up after {failures} failed attempt(s).")
             return None
+        if max_elapsed:
+            remaining = max_elapsed - (time.time() - started)
+            if remaining <= 0:
+                print(f"{name}: gave up after {max_elapsed}s (time limit).")
+                return None
+            delay = min(delay, remaining)
         print(f"{name}: attempt {failures} failed - retrying in {delay}s...")
         time.sleep(delay)
         delay = min(delay * 2, max_delay)
