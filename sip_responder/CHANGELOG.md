@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.93
+
+- Replaced embedded go2rtc with direct Hikvision ISAPI two-way audio
+  playback. Simpler: 3 HTTP calls (discover channel, open, send audio,
+  close) with basic auth. Our G.711 mu-law TTS output matches ISAPI
+  natively. Removed go2rtc binary and config options.
+
 ## 1.0.92
 
 - Fix NameError: restore go2rtc functions accidentally removed during
