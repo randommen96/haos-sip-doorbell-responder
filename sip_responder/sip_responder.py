@@ -546,7 +546,6 @@ def play_audio_via_isapi(ulaw_path):
     """Play a mu-law WAV directly on the doorbell speaker via Hikvision
     ISAPI two-way audio. Uses basic auth with the doorbell web UI
     credentials. Returns True on success."""
-    import wave
     import xml.etree.ElementTree as ET
 
     doorbell_ip = doorbell_ip_for_isapi()
@@ -577,11 +576,24 @@ def play_audio_via_isapi(ulaw_path):
         print(f"ISAPI: channel discovery error: {e}")
         return False
 
-    # 2. Read raw PCMU samples from the WAV (we generate G.711 mu-law).
+    # 2. Extract raw PCMU samples from the WAV. Python's wave module
+    #    can't read format 7 (mu-law), so parse the RIFF chunks manually.
     try:
-        with wave.open(ulaw_path, "rb") as w:
-            pcmu = w.readframes(w.getnframes())
-    except (wave.Error, OSError) as e:
+        with open(ulaw_path, "rb") as f:
+            data = f.read()
+        # Find the "data" chunk: skip RIFF header + variable chunks.
+        pos = 12  # "RIFF" + size + "WAVE"
+        while pos + 8 <= len(data):
+            chunk_id = data[pos:pos + 4]
+            chunk_size = int.from_bytes(data[pos + 4:pos + 8], "little")
+            if chunk_id == b"data":
+                pcmu = data[pos + 8:pos + 8 + chunk_size]
+                break
+            pos += 8 + chunk_size + (chunk_size % 2)  # chunks are word-aligned
+        else:
+            print("ISAPI: no data chunk found in WAV")
+            return False
+    except OSError as e:
         print(f"ISAPI: WAV read error: {e}")
         return False
 
