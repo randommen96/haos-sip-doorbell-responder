@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.87
+
+- Critical fix: relay thread crashed on SIP responses (ValueError on
+  '5060>'), permanently killing REGISTER handling and INVITE forwarding.
+  Per-packet try/except keeps thread alive; doorbell address learned
+  from REGISTER source; responses forwarded to doorbell as-is.
+
 ## 1.0.86
 
 - Revert Record-Route header. Asterisk's create_out_of_dialog_request
