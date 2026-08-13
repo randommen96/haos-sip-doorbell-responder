@@ -26,6 +26,7 @@ def load_options():
         "mqtt_username": "",
         "mqtt_password": "",
         "mqtt_listen_topic": "doorbell/announce",
+        "mqtt_result_topic": "doorbell/announce/result",
         "doorbell_ip": "",
         "tts_retry_enabled": True,
         "tts_retry_max_attempts": 0,
