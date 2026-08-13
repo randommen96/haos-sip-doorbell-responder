@@ -805,6 +805,8 @@ def _start_registrar_relay(relay_sock):
                     # Also rewrite Via sent-by so the doorbell sees 5060.
                     fwd = fwd.replace(f"UDP {SIP_DOMAIN}:{_SIP_REGISTRAR_PORT};".encode(),
                                       f"UDP {SIP_DOMAIN}:{SIP_PORT};".encode())
+                    print(f"Relay: forwarding {first_line} to "
+                          f"{host}:{port}")
                     relay_sock.sendto(fwd, (host, int(port)))
             else:
                 # Inbound: doorbell -> relay -> PJSIP
