@@ -44,7 +44,6 @@ import subprocess
 import requests
 import shutil
 import tempfile
-import queue
 import threading
 # Configuration loader — separate module for testability (no pjsua2 dep)
 from config import (  # noqa: E402
@@ -104,17 +103,15 @@ TTS_AUDIO_DURATION = cfg["tts_audio_duration"]
 TTS_ENGINE = cfg["tts_engine"]
 TTS_VOICE = cfg.get("tts_voice", "")
 
-# MQTT trigger — outbound call feature
+# MQTT trigger — outbound TTS feature
 MQTT_LISTEN_TOPIC = cfg.get("mqtt_listen_topic", "")
-DOORBELL_NUMBER = cfg.get("doorbell_number", "doorbell")
-OUTBOUND_SIP_URI = cfg.get("outbound_sip_uri", "")
+DOORBELL_IP = cfg.get("doorbell_ip", "")
 
 # TTS retry — exponential backoff for startup and on-demand generation
 TTS_RETRY_ENABLED = cfg.get("tts_retry_enabled", True)
 TTS_RETRY_MAX_ATTEMPTS = cfg.get("tts_retry_max_attempts", 0)
 TTS_RETRY_INITIAL_DELAY = cfg.get("tts_retry_initial_delay", 5)
 TTS_RETRY_MAX_DELAY = cfg.get("tts_retry_max_delay", 300)
-OUTBOUND_CALL_TIMEOUT = 15  # seconds without answer before we CANCEL
 
 # go2rtc — ISAPI two-way audio for outbound TTS playback
 GO2RTC_ENABLED = cfg.get("go2rtc_enabled", False)
@@ -192,9 +189,8 @@ def publish_mqtt_doorbell_state(state):
 
 
 def _on_mqtt_message(client, userdata, msg):
-    """Outbound trigger. Runs on paho's network thread — must NOT touch
-    pjsua2. Only thread-safe work here: parse payload, spawn a TTS worker
-    thread, and hand the result to the main thread via outbound_queue."""
+    """Outbound trigger. Runs on paho's network thread — spawns a TTS
+    worker thread which plays audio on the doorbell via go2rtc ISAPI."""
     if not MQTT_LISTEN_TOPIC:
         return
     if msg.retain:
@@ -204,19 +200,14 @@ def _on_mqtt_message(client, userdata, msg):
     if not payload:
         print("MQTT: empty payload ignored.")
         return
-    if not OUTBOUND_SIP_URI and not GO2RTC_ENABLED:
-        print("ERROR: outbound_sip_uri not configured — outbound call skipped.")
-        return
     print(f"MQTT: outbound trigger: '{payload}'")
     threading.Thread(target=_outbound_tts_worker, args=(payload,),
                      daemon=True).start()
 
 
 def _outbound_tts_worker(message):
-    """Generate TTS for an outbound trigger, retrying with backoff. Runs in
-    a daemon thread. With go2rtc enabled, plays the audio directly on the
-    doorbell speaker via ISAPI backchannel. Otherwise hands the audio to
-    the main thread via the queue for a SIP call."""
+    """Generate TTS for an outbound trigger, retrying with backoff, then
+    play it on the doorbell speaker via go2rtc ISAPI backchannel."""
     if not SUPERVISOR_TOKEN:
         print("ERROR: no SUPERVISOR_TOKEN — cannot generate outbound TTS.")
         return
@@ -227,16 +218,13 @@ def _outbound_tts_worker(message):
         TTS_RETRY_MAX_DELAY, TTS_RETRY_MAX_ATTEMPTS,
     )
     if ulaw_path:
-        if GO2RTC_ENABLED:
-            # Play directly on the doorbell speaker via go2rtc ISAPI.
-            play_audio_via_go2rtc(ulaw_path)
-            # Give playback time to finish before cleaning up.
-            import time as _time
-            file_size = os.path.getsize(ulaw_path)
-            _time.sleep(file_size / 8000 + 2)
-            remove_audio_file(ulaw_path)
-        else:
-            _outbound["queue"].put({"message": message, "ulaw_path": ulaw_path})
+        # Play directly on the doorbell speaker via go2rtc ISAPI.
+        play_audio_via_go2rtc(ulaw_path)
+        # Give playback time to finish before cleaning up.
+        import time as _time
+        file_size = os.path.getsize(ulaw_path)
+        _time.sleep(file_size / 8000 + 2)
+        remove_audio_file(ulaw_path)
     else:
         print(f"Outbound TTS failed — call skipped for: '{message}'")
 
@@ -426,23 +414,8 @@ _account = None  # set by setup_sip_endpoint()
 # outbound_sip_uri when the user hasn't configured one explicitly.
 _discovered_doorbell_uri = None
 
-# Outbound call state — all read/written only in the main thread.
-# pjsua2 is not thread-safe, so the MQTT callback only enqueues jobs;
-# the main event loop drains the queue and places calls.
-# Single mutable dict avoids 'global' declarations — we mutate contents,
-# never reassign the _outbound name itself.
-_outbound = {
-    "queue": queue.Queue(),
-    "active": False,
-    "start_time": 0,
-    "call_id": None,
-    "job": None,  # pending job waiting for line to free up
-}
-
-
 def play_audio_in_call(call, ulaw_path):
-    """Play a mu-law WAV into an active call, then hang up. Main thread only.
-    Shared by incoming (DoorbellCall) and outbound (OutboundCall) calls."""
+    """Play a mu-law WAV into an active call, then hang up. Main thread only."""
     if getattr(call, "audio_played", False):
         return
     call.audio_played = True
@@ -508,7 +481,7 @@ class DoorbellAccount(pj.Account):
         print("Doorbell button pressed! Publishing event...")
         publish_mqtt_doorbell_state(True)
 
-        # Learn the doorbell's SIP URI for outbound calls.
+        # Learn the doorbell's IP for go2rtc ISAPI playback.
         # Use remoteContact (the Contact header) — that's the doorbell's
         # actual reachable address.  remoteUri is the From header which
         # carries the SIP identity with our domain, not the doorbell's IP.
@@ -516,16 +489,14 @@ class DoorbellAccount(pj.Account):
         info = call.getInfo()
         if info.remoteContact and not _discovered_doorbell_uri:
             _discovered_doorbell_uri = info.remoteContact
-            print(f"Outbound SIP URI discovered: {_discovered_doorbell_uri}")
+            print(f"Doorbell address discovered: {_discovered_doorbell_uri}")
 
         call_prm = pj.CallOpParam()
-        if _outbound["active"] or len(_active_calls) > 1:
+        if len(_active_calls) > 1:
             # This call is already in the dict, so len>1 means another
-            # call is in progress; _outbound["active"] gives the reason.
-            reason = "outbound call in progress" if _outbound["active"] \
-                     else "another call in progress"
+            # call is in progress.
             call_prm.statusCode = 486
-            print(f"Busy ({reason}) — rejecting incoming call with 486.")
+            print("Busy (another call in progress) — rejecting with 486.")
         else:
             call_prm.statusCode = 200
             print("Call answered (200 OK).")
@@ -554,184 +525,6 @@ class DoorbellCall(pj.Call):
         """Play cached mu-law audio into the active call."""
         play_audio_in_call(self, TTS_ULAW_PATH)
 
-
-class OutboundCall(pj.Call):
-    """Outbound call triggered by an MQTT message. Plays the generated TTS
-    audio once CONFIRMED. Same GC-fix discipline as incoming calls: the
-    instance must be kept in _active_calls or pjsua2 abandons the call."""
-
-    def __init__(self, acc, ulaw_path):
-        pj.Call.__init__(self, acc, pj.PJSUA_INVALID_ID)
-        self.ulaw_path = ulaw_path
-        self.audio_played = False
-
-    def onCallState(self, prm):
-        state = self.getInfo().state
-        if state == pj.PJSIP_INV_STATE_CONFIRMED:
-            print("Outbound call confirmed. Playing TTS audio...")
-            play_audio_in_call(self, self.ulaw_path)
-        elif state == pj.PJSIP_INV_STATE_DISCONNECTED:
-            info = self.getInfo()
-            print(f"Outbound call disconnected. (last status: {info.lastStatusCode})")
-            _active_calls.pop(self.getId(), None)
-            _outbound["active"] = False
-            _outbound["call_id"] = None
-            remove_audio_file(self.ulaw_path)
-
-
-# ---------------------------------------------------------------------------
-# Outbound call placement and main-loop processing
-# ---------------------------------------------------------------------------
-
-
-def start_outbound_call(job):
-    """Place the outbound call. Main thread only — called from
-    process_outbound_requests. Stores the call for the GC fix."""
-    # Resolve URI: explicit config > auto-discovered from incoming call
-    uri = normalize_sip_uri(OUTBOUND_SIP_URI) or normalize_sip_uri(
-        _discovered_doorbell_uri or ""
-    )
-
-    if not uri:
-        print("ERROR: no outbound SIP URI — configure outbound_sip_uri"
-              " or wait for a doorbell ring to auto-discover it.")
-        remove_audio_file(job["ulaw_path"])
-        return
-    call = OutboundCall(_account, job["ulaw_path"])
-    call_prm = pj.CallOpParam()
-    try:
-        call.makeCall(uri, call_prm)
-    except pj.Error as e:
-        print(f"Outbound call error: {e}")
-        remove_audio_file(job["ulaw_path"])
-        return
-    _active_calls[call.getId()] = call  # GC fix applies to outbound too
-    _outbound["active"] = True
-    _outbound["start_time"] = time.time()
-    _outbound["call_id"] = call.getId()
-    print(f"Outbound call placed: {uri} (call id {call.getId()})")
-
-
-def process_outbound_requests():
-    """Called from the main loop every iteration. Drains the MQTT->main
-    queue (latest message wins), starts a pending call once the line is
-    free, and enforces the outbound answer timeout. All SIP operations
-    stay on the main thread — pjsua2 is not thread-safe."""
-
-    # Drain the queue, keeping only the most recent job.
-    try:
-        while True:
-            job = _outbound["queue"].get_nowait()
-            if _outbound["job"] is not None:
-                remove_audio_file(_outbound["job"]["ulaw_path"])  # superseded
-            _outbound["job"] = job
-    except queue.Empty:
-        pass
-
-    # Start the pending call once no call is in progress. An in-progress
-    # incoming call simply delays this; the check re-runs next iteration.
-    if _outbound["job"] is not None and not _active_calls:
-        job = _outbound["job"]
-        _outbound["job"] = None
-        start_outbound_call(job)
-
-    # Give up on unanswered outbound calls (doorbell never auto-answered).
-    if (_outbound["active"]
-            and time.time() - _outbound["start_time"] > OUTBOUND_CALL_TIMEOUT):
-        print("Outbound call timed out (no answer). Hanging up.")
-        print("  Check the doorbell's SIP auto-answer setting.")
-        call = _active_calls.get(_outbound["call_id"])
-        if call:
-            hangup_prm = pj.CallOpParam()
-            call.hangup(hangup_prm)
-        _outbound["active"] = False
-
-
-# ---------------------------------------------------------------------------
-
-# go2rtc — ISAPI two-way audio playback for outbound TTS
-# ---------------------------------------------------------------------------
-
-
-def _start_go2rtc():
-    """Start the go2rtc subprocess with the doorbell ISAPI stream config.
-    Runs in a daemon thread — logs go2rtc output to our stdout."""
-    global _go2rtc_proc
-    if not GO2RTC_ENABLED:
-        print("go2rtc: disabled (go2rtc_enabled=false)")
-        return
-    if not DOORBELL_ADMIN_PASSWORD:
-        print("go2rtc: ERROR - doorbell_admin_password not configured")
-        return
-
-    doorbell_ip = DOORBELL_IP_FOR_GO2RTC()
-    if not doorbell_ip:
-        print("go2rtc: ERROR - cannot determine doorbell IP. Configure"
-              " outbound_sip_uri or wait for a doorbell ring.")
-        return
-
-    config = (
-        "log:\n"
-        "  level: info\n"
-        "api:\n"
-        f"  listen: :{GO2RTC_PORT}\n"
-        "rtsp:\n"
-        f"  listen: :8554\n"
-        "streams:\n"
-        f"  doorbell: isapi://{DOORBELL_ADMIN_USERNAME}:{DOORBELL_ADMIN_PASSWORD}@{doorbell_ip}:80/\n"
-    )
-    config_path = "/tmp/go2rtc.yaml"
-    with open(config_path, "w") as f:
-        f.write(config)
-    try:
-        _go2rtc_proc = subprocess.Popen(
-            ["/usr/local/bin/go2rtc", "-config", config_path],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-    except Exception as e:
-        print(f"go2rtc: failed to start: {e}")
-        return
-    print(f"go2rtc: started with ISAPI stream for doorbell at {doorbell_ip}")
-    for line in _go2rtc_proc.stdout:
-        line = line.strip()
-        if line:
-            print(f"go2rtc: {line}")
-
-
-def DOORBELL_IP_FOR_GO2RTC():
-    """Extract the doorbell IP from configured URI or discovery."""
-    uri = normalize_sip_uri(OUTBOUND_SIP_URI or _discovered_doorbell_uri or "")
-    if not uri:
-        return ""
-    uri = uri.strip("<>").replace("sip:", "")
-    if "@" in uri:
-        return uri.split("@")[1].split(":")[0]
-    return uri.split(":")[0]
-
-
-def play_audio_via_go2rtc(ulaw_path):
-    """Play a mu-law WAV on the doorbell speaker via go2rtc ISAPI."""
-    try:
-        resp = requests.post(
-            f"http://127.0.0.1:{GO2RTC_PORT}/api/streams",
-            params={
-                "dst": "doorbell",
-                "src": f"ffmpeg:{ulaw_path}#audio=pcma#input=file",
-            },
-            timeout=5,
-        )
-        if resp.status_code == 200:
-            print(f"go2rtc: playback started for {ulaw_path}")
-            return True
-        else:
-            print(f"go2rtc: playback failed: HTTP {resp.status_code}: "
-                  f"{resp.text[:200]}")
-            return False
-    except requests.RequestException as e:
-        print(f"go2rtc: playback request error: {e}")
-        return False
 
 
 
@@ -801,12 +594,12 @@ def main():
     mqtt_src = "auto" if (not MQTT_HOST or MQTT_HOST == "core-mosquitto") else "manual"
     print(f"  MQTT: {MQTT_HOST}:{MQTT_PORT} [{mqtt_src}]" + (" (auth)" if MQTT_USERNAME else ""))
     print(f"  TTS: '{TTS_MESSAGE}' ({TTS_AUDIO_DURATION}s)" + (" [API]" if SUPERVISOR_TOKEN else " [static file]"))
-    print(f"  Identities: we are '{SIP_USERNAME}', doorbell is '{DOORBELL_NUMBER}'")
     if MQTT_LISTEN_TOPIC:
-        uri_txt = OUTBOUND_SIP_URI or "(auto-discover on first ring)"
-        print(f"  Outbound calls: topic '{MQTT_LISTEN_TOPIC}' -> {uri_txt}")
+        ip_txt = DOORBELL_IP or "(auto-discover on first ring)"
+        print(f"  Outbound audio: topic '{MQTT_LISTEN_TOPIC}' -> doorbell {ip_txt}"
+              f" via go2rtc ISAPI (port {GO2RTC_PORT})")
     else:
-        print("  Outbound calls: disabled (mqtt_listen_topic empty)")
+        print("  Outbound audio: disabled (mqtt_listen_topic empty)")
     print(f"  TTS retry: {'enabled' if TTS_RETRY_ENABLED else 'disabled'} "
           f"(attempts={'infinite' if TTS_RETRY_MAX_ATTEMPTS == 0 else TTS_RETRY_MAX_ATTEMPTS}, "
           f"delay {TTS_RETRY_INITIAL_DELAY}s -> {TTS_RETRY_MAX_DELAY}s)")
@@ -856,12 +649,9 @@ def main():
     print("Waiting for doorbell rings...")
 
     # 5. Event loop — with threadCnt=0, we must poll for SIP events.
-    #    Outbound requests are drained here (main thread) because pjsua2
-    #    is not thread-safe: MQTT callbacks only enqueue jobs.
     try:
         while True:
             ep.libHandleEvents(100)  # 100ms timeout, non-blocking poll
-            process_outbound_requests()
     except KeyboardInterrupt:
         print("Shutting down...")
     finally:

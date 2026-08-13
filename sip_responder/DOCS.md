@@ -44,6 +44,10 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
 | `tts_retry_initial_delay` | `5` | Seconds before first retry |
 | `tts_retry_max_delay` | `300` | Max seconds between retries |
+| `go2rtc_enabled` | `false` | Play outbound TTS via go2rtc ISAPI instead of SIP call |
+| `doorbell_admin_username` | `"admin"` | Doorbell web UI admin username (ISAPI auth) |
+| `doorbell_admin_password` | `""` | Doorbell web UI admin password (ISAPI auth) |
+| `go2rtc_port` | `1984` | Internal go2rtc API port |
 
 ### Log Levels
 
@@ -60,23 +64,24 @@ At the default level of 1 (ERROR), PJSIP startup is nearly silent. Only actual e
 
 Set `log_level` to 5 only when debugging SIP issues.
 
-## MQTT-Triggered Outbound Calls
+## MQTT-Triggered Outbound Audio
 
-The app can make outbound SIP calls to the doorbell (or any SIP endpoint), triggered by MQTT messages. This enables automations to make the doorbell speak arbitrary messages.
+The app can make the doorbell speak arbitrary messages, triggered by MQTT. This enables automations to announce events on the doorbell speaker.
 
-### How It Works
+### Recommended Mode: go2rtc ISAPI (direct speaker playback)
 
-1. You publish a message to the configured `mqtt_listen_topic` (e.g., `doorbell/announce`)
-2. The app generates TTS audio from the message payload
-3. The app places an outbound SIP call to `outbound_sip_uri`
-4. The doorbell auto-answers, the TTS message plays, and the call hangs up
+The KB8113 does not reliably auto-answer SIP calls. Instead, use the embedded go2rtc to play audio directly on the doorbell speaker via Hikvision's ISAPI two-way audio:
 
-### Setup
+1. Set `go2rtc_enabled: true`
+2. Set `doorbell_admin_username` and `doorbell_admin_password` (doorbell web UI credentials)
+3. The doorbell IP is taken from `outbound_sip_uri` or auto-discovered from the first button press
+4. Publish to `mqtt_listen_topic` → TTS is generated → played on the doorbell speaker
 
-1. `mqtt_listen_topic` defaults to `doorbell/announce` — set to `""` to disable
-2. `outbound_sip_uri` is optional — the doorbell's SIP address is auto-discovered
-   on the first ring. Only set it explicitly if you need a different target.
-3. The doorbell auto-answers by default when it receives a SIP call — no extra configuration needed
+No SIP call involved — the doorbell doesn't need to answer anything.
+
+### Alternative Mode: SIP call
+
+With `go2rtc_enabled: false`, the app places an outbound SIP call to `outbound_sip_uri`. The doorbell must auto-answer the INVITE — on the KB8113 this is firmware-dependent and often doesn't work.
 
 ### Example Automation
 
@@ -95,7 +100,6 @@ action:
 
 ### Notes
 
-- Outbound calls are skipped if the line is busy (incoming call in progress)
 - TTS is generated on-demand with the same retry/backoff as startup TTS
 - The `outbound_sip_uri` accepts bare IPs (`192.168.1.50`) — `sip:` is auto-prepended
 - Retained MQTT messages are ignored to prevent stale triggers on restart
