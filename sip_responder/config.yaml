@@ -1,6 +1,6 @@
 name: "SIP Doorbell Responder"
 description: "Answers Hikvision KB8113 doorbell rings with a Piper TTS message"
-version: "1.0.100"
+version: "1.0.101"
 slug: "sip_responder"
 url: "https://github.com/randommen96/haos-sip-doorbell-responder"
 documentation: "https://github.com/randommen96/haos-sip-doorbell-responder/blob/main/README.md"
@@ -14,7 +14,7 @@ arch:
 
 # host_network: true — the add-on binds host ports directly, so Docker
 # port mappings are ignored. Ports in use: 5060/udp (SIP) and
-# 4000-4003/udp (two RTP/RTCP pairs: account + active call).
+# 4000-4001/udp (one RTP/RTCP pair for the single active call).
 host_network: true
 
 options:

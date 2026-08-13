@@ -32,7 +32,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `mqtt_username` | `""` | MQTT username. Leave empty for auto-discovery. |
 | `mqtt_password` | `""` | MQTT password. Leave empty for auto-discovery. |
 | `sip_port` | `5060` | SIP signalling port |
-| `rtp_port_start` | `4000` | First RTP port (two pairs used: account + active call) |
+| `rtp_port_start` | `4000` | First RTP port (one RTP/RTCP pair: 4000 + 4001) |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
 | `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound TTS triggers (empty = disabled) |
 | `doorbell_ip` | `""` | Doorbell IP address. Auto-discovered from first ring if empty. |

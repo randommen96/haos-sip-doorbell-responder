@@ -725,10 +725,11 @@ def setup_sip_endpoint():
     # No self-registration — the GC fix (store Call objects) was the
     # real 603 fix. Registration adds 408 timeout noise on every cycle.
     acfg.mediaConfig.transportConfig.port = RTP_PORT_START
-    # Port range for RTP/RTCP pairs. One pair for the account (always
-    # reserved), one pair for the active call (inbound or outbound —
-    # mutual exclusion guarantees only one at a time).
-    acfg.mediaConfig.transportConfig.portRange = 2
+    # One RTP/RTCP pair (4000/4001) is enough: only a single active call
+    # ever exists (second rings get 486 before media is set up), we never
+    # place outbound calls, and the account transport is lazy — it only
+    # opens for outbound calls. Verified: startup opens no RTP sockets.
+    acfg.mediaConfig.transportConfig.portRange = 1
     # Session timer values must be >= 90 (RFC 4028) and
     # sess_expires >= min_se (PJSIP assertion).  Set both to a
     # high value so re-INVITEs never fire during normal calls.

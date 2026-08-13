@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.0.101
+
+- RTP: reduced port range from two pairs to one (4000-4001). Verified the
+  account transport is lazy and startup opens no RTP sockets — only the
+  single active ring call ever uses a pair.
+
 ## 1.0.100
 
 - Fix startup TTS temp-file leak: downloaded .audio file is now removed
