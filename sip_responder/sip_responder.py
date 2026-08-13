@@ -544,9 +544,13 @@ def doorbell_ip_for_isapi():
 
 def play_audio_via_isapi(ulaw_path):
     """Play a mu-law WAV directly on the doorbell speaker via Hikvision
-    ISAPI two-way audio. Uses basic auth with the doorbell web UI
-    credentials. Returns True on success."""
+    ISAPI two-way audio. Replicates go2rtc's proven flow:
+    close -> open -> zero-length PUT audioData on a keep-alive TCP
+    connection -> stream raw audio bytes on that connection -> close.
+    Returns True on success."""
     import xml.etree.ElementTree as ET
+    import time as _time
+    import socket as _sock
 
     doorbell_ip = doorbell_ip_for_isapi()
     if not doorbell_ip:
@@ -554,15 +558,15 @@ def play_audio_via_isapi(ulaw_path):
               " doorbell_ip or wait for a doorbell ring.")
         return False
 
-    # Hikvision ISAPI uses Digest authentication.
-    auth = requests.auth.HTTPDigestAuth(
+    session = requests.Session()
+    session.auth = requests.auth.HTTPDigestAuth(
         DOORBELL_ADMIN_USERNAME, DOORBELL_ADMIN_PASSWORD
     )
     base = f"http://{doorbell_ip}/ISAPI/System/TwoWayAudio/channels"
 
     # 1. Discover the audio channel ID.
     try:
-        resp = requests.get(base, auth=auth, timeout=5)
+        resp = session.get(base, timeout=5)
         if resp.status_code != 200:
             print(f"ISAPI: channel discovery failed: HTTP {resp.status_code}")
             return False
@@ -595,41 +599,81 @@ def play_audio_via_isapi(ulaw_path):
         print(f"ISAPI: raw file read error: {e}")
         return False
 
-    # 3. Play audio. Hikvision channels get stuck if a previous open was
-    #    not closed, so always close first. Stream the audio at real-time
-    #    pace (8 kHz) so the doorbell plays it properly. The audioData
-    #    endpoint never responds until the connection closes, so send it
-    #    in a background thread and close the channel after the audio
-    #    duration instead of waiting for a response.
-    import time as _time
-
-    def _audio_generator():
-        chunk = 800  # 100ms of audio at 8 kHz
-        for i in range(0, len(pcmu), chunk):
-            yield pcmu[i:i + chunk]
-            _time.sleep(0.1)
-
-    def _send_audio():
-        try:
-            requests.put(
-                f"{base}/{channel}/audioData",
-                data=_audio_generator(),
-                headers={"Content-Type": "application/octet-stream"},
-                auth=auth,
-                timeout=len(pcmu) / 8000 + 10,
-            )
-        except requests.RequestException:
-            pass  # expected: doorbell doesn't respond until close
-
+    # 3. Close (unstick any previous session), then open.
     try:
-        # Close any stuck channel from a previous attempt (ignore errors).
-        requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
-        requests.put(f"{base}/{channel}/open", auth=auth, timeout=5)
-        threading.Thread(target=_send_audio, daemon=True).start()
-        _time.sleep(len(pcmu) / 8000 + 2)  # wait for audio to finish
-        requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
+        session.put(f"{base}/{channel}/close", timeout=5)
+        resp = session.put(f"{base}/{channel}/open", timeout=5)
+        if resp.status_code != 200:
+            print(f"ISAPI: open failed: HTTP {resp.status_code}")
+            return False
     except requests.RequestException as e:
-        print(f"ISAPI: playback error: {e}")
+        print(f"ISAPI: open error: {e}")
+        return False
+
+    # 4. Build an audioData request to capture a valid digest header.
+    try:
+        req = requests.Request(
+            "PUT", f"{base}/{channel}/audioData",
+            headers={"Content-Type": "application/octet-stream",
+                     "Content-Length": "0"},
+        ).prepare()
+        session.auth(req)  # attach Authorization header
+        auth_header = req.headers.get("Authorization", "")
+        if not auth_header:
+            print("ISAPI: no Authorization header captured")
+            return False
+    except Exception as e:
+        print(f"ISAPI: auth header error: {e}")
+        return False
+
+    # 5. Raw socket: establish audioData connection, stream audio at
+    #    real-time pace, then close the connection.
+    try:
+        sock = _sock.socket(_sock.AF_INET, _sock.SOCK_STREAM)
+        sock.settimeout(10)
+        sock.connect((doorbell_ip, 80))
+        request_line = (
+            f"PUT /ISAPI/System/TwoWayAudio/channels/{channel}/audioData"
+            f" HTTP/1.1\r\n"
+            f"Host: {doorbell_ip}\r\n"
+            f"Content-Type: application/octet-stream\r\n"
+            f"Content-Length: 0\r\n"
+            f"Authorization: {auth_header}\r\n"
+            f"\r\n"
+        )
+        sock.sendall(request_line.encode())
+        # Read response headers (should be 200, connection held open).
+        sock.settimeout(3)
+        buf = b""
+        try:
+            while b"\r\n\r\n" not in buf:
+                chunk = sock.recv(1024)
+                if not chunk:
+                    break
+                buf += chunk
+        except _sock.timeout:
+            pass
+        status_line = buf.split(b"\r\n")[0].decode() if buf else "?"
+        if "200" not in status_line:
+            print(f"ISAPI: audioData error: {status_line}")
+            sock.close()
+            return False
+
+        # Stream audio at real-time pace (8 kHz mu-law).
+        chunk_size = 800  # 100ms
+        for i in range(0, len(pcmu), chunk_size):
+            sock.sendall(pcmu[i:i + chunk_size])
+            _time.sleep(0.1)
+        sock.close()
+    except (_sock.error, OSError) as e:
+        print(f"ISAPI: audio streaming error: {e}")
+        return False
+
+    # 6. Close the channel.
+    try:
+        session.put(f"{base}/{channel}/close", timeout=5)
+    except requests.RequestException as e:
+        print(f"ISAPI: close error: {e}")
         return False
 
     print(f"ISAPI: played {len(pcmu)} bytes of audio on the doorbell")
