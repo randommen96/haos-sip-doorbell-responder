@@ -597,7 +597,10 @@ def play_audio_via_isapi(ulaw_path):
 
     # 3. Play audio. Hikvision channels get stuck if a previous open was
     #    not closed, so always close first. Stream the audio at real-time
-    #    pace (8 kHz) so the doorbell plays it properly.
+    #    pace (8 kHz) so the doorbell plays it properly. The audioData
+    #    endpoint never responds until the connection closes, so send it
+    #    in a background thread and close the channel after the audio
+    #    duration instead of waiting for a response.
     import time as _time
 
     def _audio_generator():
@@ -606,17 +609,24 @@ def play_audio_via_isapi(ulaw_path):
             yield pcmu[i:i + chunk]
             _time.sleep(0.1)
 
+    def _send_audio():
+        try:
+            requests.put(
+                f"{base}/{channel}/audioData",
+                data=_audio_generator(),
+                headers={"Content-Type": "application/octet-stream"},
+                auth=auth,
+                timeout=len(pcmu) / 8000 + 10,
+            )
+        except requests.RequestException:
+            pass  # expected: doorbell doesn't respond until close
+
     try:
         # Close any stuck channel from a previous attempt (ignore errors).
         requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
         requests.put(f"{base}/{channel}/open", auth=auth, timeout=5)
-        requests.put(
-            f"{base}/{channel}/audioData",
-            data=_audio_generator(),
-            headers={"Content-Type": "application/octet-stream"},
-            auth=auth,
-            timeout=len(pcmu) / 8000 + 10,  # audio duration + margin
-        )
+        threading.Thread(target=_send_audio, daemon=True).start()
+        _time.sleep(len(pcmu) / 8000 + 2)  # wait for audio to finish
         requests.put(f"{base}/{channel}/close", auth=auth, timeout=5)
     except requests.RequestException as e:
         print(f"ISAPI: playback error: {e}")
