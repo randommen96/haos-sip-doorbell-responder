@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.0.98
+
+- Fixed ISAPI playback: doorbell ignores audio sent as PUT body.
+  Now replicates go2rtc's proven flow — zero-length PUT audioData on
+  keep-alive TCP connection, stream raw mu-law bytes on the connection
+  at 8kHz pace, then close. Verified working against the doorbell.
+
 ## 1.0.97
 
 - ISAPI: don't wait for audioData response — the doorbell streams audio
