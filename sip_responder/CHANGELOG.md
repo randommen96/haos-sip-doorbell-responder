@@ -1,5 +1,13 @@
 # Changelog
 
+## 1.0.91
+
+- Removed SIP outbound mode entirely — go2rtc ISAPI is the only
+  outbound audio path. Deleted OutboundCall, queue, busy handling.
+- Renamed outbound_sip_uri to doorbell_ip (plain IP, auto-discovered).
+- Removed doorbell_number option.
+- Docs updated for go2rtc-only outbound audio.
+
 ## 1.0.90
 
 - Major rework: removed SIP relay (200 lines) — PJSIP back on 5060.
