@@ -191,6 +191,49 @@ action:
       payload: "Package delivered, please collect at the front door."
 ```
 
+### Results
+
+Each announcement publishes its terminal result to `mqtt_result_topic` (default `doorbell/announce/result`):
+
+```json
+{"id": "", "status": "ok", "message": "Package delivered...", "error": ""}
+```
+
+`status` is `ok` (played on the doorbell) or `error` (reason in `error`, e.g. `TTS generation failed`, `ISAPI playback failed`). Results are not retained — they are transient events.
+
+To match a result to the request that caused it, publish a JSON payload with an `id` — the app echoes it in the result:
+
+```yaml
+action:
+  - service: mqtt.publish
+    data:
+      topic: doorbell/announce
+      payload: '{"id": "package-announce", "text": "Package delivered, please collect at the front door."}'
+```
+
+```yaml
+alias: "React to announcement result"
+trigger:
+  - platform: mqtt
+    topic: doorbell/announce/result
+    value_template: "{{ value_json.id }}"
+    payload: "package-announce"
+action:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.payload_json.status == 'ok' }}"
+    then:
+      - service: notify.notify
+        data:
+          message: "Announcement played on the doorbell."
+    else:
+      - service: notify.notify
+        data:
+          message: "Announcement failed: {{ trigger.payload_json.error }}"
+```
+
+Plain-text payloads keep working as before (result gets an empty `id`, the full text is echoed in `message`).
+
 ## TTS Retry
 
 If Piper isn't ready when the app starts, TTS generation retries with exponential backoff (5s → 300s cap, configurable). Once it succeeds, the cached audio is available for incoming doorbell presses. Check the log for "TTS ready after N retries."

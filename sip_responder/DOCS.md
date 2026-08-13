@@ -35,6 +35,7 @@ Answers SIP calls from a Hikvision KB8113-IME1 doorbell and plays a text-to-spee
 | `rtp_port_start` | `4000` | First RTP port (one RTP/RTCP pair: 4000 + 4001) |
 | `tts_wav_path` | `"/media/tts/doorbell_message.wav"` | Static WAV fallback if API unavailable |
 | `mqtt_listen_topic` | `"doorbell/announce"` | MQTT topic for outbound TTS triggers (empty = disabled) |
+| `mqtt_result_topic` | `"doorbell/announce/result"` | MQTT topic where the ok/error result of each announcement is published (empty = disabled) |
 | `doorbell_ip` | `""` | Doorbell IP address. Auto-discovered from first ring if empty. |
 | `tts_retry_enabled` | `true` | Retry TTS with backoff on failure |
 | `tts_retry_max_attempts` | `0` | Max retries (0 = infinite) |
@@ -83,6 +84,53 @@ action:
     data:
       topic: doorbell/announce
       payload: "A package has been delivered. Please collect it at the front door."
+```
+
+### Results
+
+Every announcement publishes its terminal result to `mqtt_result_topic`:
+
+```json
+{"id": "", "status": "ok", "message": "A package has been delivered...", "error": ""}
+```
+
+- `status`: `ok` (played on the doorbell) or `error` (with reason in `error`)
+- Not retained — results are transient events
+
+To match a result to the request that caused it, send a JSON payload with an
+`id` on the trigger topic; the app echoes it in the result:
+
+```yaml
+alias: "Announce with confirmation"
+trigger:
+  - platform: state
+    entity_id: binary_sensor.package_delivered
+    to: "on"
+action:
+  - service: mqtt.publish
+    data:
+      topic: doorbell/announce
+      payload: '{"id": "package-announce", "text": "A package has been delivered. Please collect it at the front door."}'
+
+---
+alias: "Announcement result"
+trigger:
+  - platform: mqtt
+    topic: doorbell/announce/result
+    value_template: "{{ value_json.id }}"
+    payload: "package-announce"
+action:
+  - if:
+      - condition: template
+        value_template: "{{ trigger.payload_json.status == 'ok' }}"
+    then:
+      - service: notify.notify
+        data:
+          message: "Announcement played on the doorbell."
+    else:
+      - service: notify.notify
+        data:
+          message: "Announcement failed: {{ trigger.payload_json.error }}"
 ```
 
 ### Notes

@@ -26,6 +26,7 @@ def test_defaults():
     assert opts["mqtt_username"] == ""
     assert opts["mqtt_password"] == ""
     assert opts["mqtt_listen_topic"] == "doorbell/announce"
+    assert opts["mqtt_result_topic"] == "doorbell/announce/result"
     assert opts["doorbell_ip"] == ""
     assert opts["tts_retry_enabled"] is True
     assert opts["tts_retry_max_attempts"] == 0
@@ -65,7 +66,7 @@ def test_all_config_keys():
         "sip_username", "sip_domain", "sip_port", "rtp_port_start",
         "tts_message", "tts_wav_path", "tts_engine", "tts_voice", "mqtt_host",
         "mqtt_port", "sensor_name", "log_level", "mqtt_username", "mqtt_password",
-        "mqtt_listen_topic", "doorbell_ip", "tts_retry_enabled",
+        "mqtt_listen_topic", "mqtt_result_topic", "doorbell_ip", "tts_retry_enabled",
         "tts_retry_max_attempts", "tts_retry_initial_delay", "tts_retry_max_delay",
         "doorbell_admin_username", "doorbell_admin_password",
     }

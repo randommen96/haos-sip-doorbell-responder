@@ -1,5 +1,18 @@
 # Changelog
 
+## 1.0.104
+
+- Outbound announcements now publish their terminal result to MQTT
+  (`mqtt_result_topic`, default `doorbell/announce/result`): `ok` after
+  successful ISAPI playback, `error` with reason otherwise. Automations
+  can finally react to failures instead of fire-and-forget.
+- JSON payloads on the trigger topic (`{"id": ..., "text": ...}`) carry
+  a correlation id echoed in the result, so an automation can match its
+  request to its result via `value_json.id`. Plain-text payloads still
+  work.
+- `play_audio_via_isapi`'s return value is now checked — a failed
+  playback reports an error instead of being silently swallowed.
+
 ## 1.0.103
 
 - TTS retry hardening: exceptions from an attempt (e.g. HTML error page
