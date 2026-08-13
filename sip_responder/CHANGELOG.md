@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.94
+
+- Fix ISAPI 401: use Digest authentication (Hikvision rejects Basic).
+
 ## 1.0.93
 
 - Replaced embedded go2rtc with direct Hikvision ISAPI two-way audio
